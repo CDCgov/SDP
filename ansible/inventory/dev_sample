@@ -1,0 +1,26 @@
+# host group for masters
+[masters]
+master.example.com
+
+# host group for nodes, includes region info
+[nodes]
+master.example.com openshift_node_labels="{'region':'infra','zone':'default'}"
+node1.example.com openshift_node_labels="{'region': 'primary', 'zone': 'east'}"
+node2.example.com openshift_node_labels="{'region': 'primary', 'zone': 'east'}"
+
+[OSEv3:vars]
+#ansible_ssh_user=root
+deployment_type=origin
+# If your nodes need to use a proxy to access the Internet, uncomment and
+# define as needed
+openshift_http_proxy=http://proxy.example.com:80
+openshift_https_proxy=http://proxy.example.com:80
+openshift_no_proxy=*.example.com
+openshift_rolling_restart_mode=system
+
+# uncomment the following to enable htpasswd authentication; defaults to DenyAllPasswordIdentityProvider
+#openshift_master_identity_providers=[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/htpasswd'}]
+
+[OSEv3:children]
+masters
+nodes

@@ -1,0 +1,113 @@
+---
+- hosts: nodes
+  remote_user: root
+  environment:
+    http_proxy: "{{ openshift_http_proxy }}"
+    https_proxy: "{{ openshift_https_proxy }}"
+
+  vars:
+    next_part_num: "{{ ansible_devices.sda.partitions|length + 1}}"
+
+  tasks:
+  - name: Ensure SELINUX is enabled
+    lineinfile:
+      dest=/etc/selinux/config
+      regexp=^SELINUX=
+      line=SELINUX=enforcing
+
+  - name: Ensure SELINUX is using targeted policy
+    lineinfile:
+      dest=/etc/selinux/config
+      regexp=^SELINUXTYPE=
+      line=SELINUXTYPE=targeted
+
+  - name: Install required base packages
+    yum: state=present name={{ item }}
+    with_items:
+    - wget
+    - git
+    - net-tools
+    - bind-utils
+    - iptables-services
+    - bridge-utils
+    - bash-completion
+
+  - name: Install Docker package
+    yum: name=docker state=latest
+
+  - name: Add --insecure-registry option to docker options
+    lineinfile:
+      dest=/etc/sysconfig/docker
+      line="OPTIONS='--selinux-enabled --log-driver=journald --insecure-registry 172.30.0.0/16'"
+      regexp=^OPTIONS=
+      state=present
+
+  - name: Read partition table
+    command: /usr/sbin/parted /dev/sda --script -- print free
+    register: part_table
+    changed_when: False
+
+  - name: Find free space on disk for docker
+    shell: /usr/sbin/parted /dev/sda --script -- unit s print free | tail -n 2
+    register: disk_free_space
+    changed_when: False
+
+  - name: Find start of free space for docker
+    shell: /usr/sbin/parted /dev/sda --script -- unit s print free | tail -n 2 | awk -e '{print $1}'
+    register: disk_free_start
+    changed_when: False
+    when: disk_free_space.stdout.find('Free Space') != -1
+
+  - name: Find end of free space for docker
+    shell: /usr/sbin/parted /dev/sda --script -- unit s print free | tail -n 2 | awk -e '{print $2}'
+    register: disk_free_end
+    changed_when: False
+    when: disk_free_space.stdout.find('Free Space') != -1
+
+  - name: Add new partition for docker storage
+    command: /usr/sbin/parted /dev/sda --script -- mkpart primary {{ disk_free_start.stdout }} {{ disk_free_end.stdout }} set {{ next_part_num }} lvm on name {{ next_part_num }} docker
+    when:
+      part_table.stdout.find('docker') == -1
+    notify:
+    - reread partition table
+
+  - meta: flush_handlers
+
+  - name: Re-read partition table
+    command: /usr/sbin/parted /dev/sda --script -- print free
+    register: part_table
+    changed_when: False
+
+  - name: Get docker partition number
+    shell: /usr/sbin/parted /dev/sda --script -- print free | grep "docker" | awk -e '{print $1}'
+    register: docker_part_num
+    changed_when: False
+    failed_when: part_table.stdout.find('docker') == -1
+    when: part_table.stdout.find('docker') != -1
+
+  - name: Create docker LVM volume group
+    lvg: vg=docker-vg pvs=/dev/sda{{ docker_part_num.stdout }}
+
+  - name: Get LVM logical volume list
+    command: /usr/sbin/lvs --noheadings
+    register: lvm_logical_vols
+    changed_when: False
+
+  - name: Create docker-storage-setup config
+    copy:
+      dest=/etc/sysconfig/docker-storage-setup
+      owner=root
+      group=root
+      mode=0644
+      content="VG=docker-vg\n"
+
+  - name: Create docker storage pool
+    command: /usr/bin/docker-storage-setup
+    when: lvm_logical_vols.stdout.find('docker-pool') == -1
+
+  - name: Start docker service
+    service: name=docker enabled=yes state=started
+
+  handlers:
+  - name: reread partition table
+    command: /usr/sbin/partprobe /dev/sda
