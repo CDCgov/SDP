@@ -4,7 +4,7 @@ master.example.com
 
 # host group for nodes, includes region info
 [nodes]
-master.example.com openshift_node_labels="{'region':'infra','zone':'default'}"
+master.example.com openshift_node_labels="{'region':'infra','zone':'default'}" openshift_schedulable=true
 node1.example.com openshift_node_labels="{'region': 'primary', 'zone': 'east'}"
 node2.example.com openshift_node_labels="{'region': 'primary', 'zone': 'east'}"
 
