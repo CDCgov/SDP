@@ -1,9 +1,6 @@
 ---
 - hosts: nodes
   remote_user: root
-  environment:
-    http_proxy: "{{ openshift_http_proxy }}"
-    https_proxy: "{{ openshift_https_proxy }}"
 
   vars:
     next_part_num: "{{ ansible_devices.sda.partitions|length + 1}}"
