@@ -215,7 +215,7 @@
       "name": "MYSQL_INNODB_FLUSH_LOG_AT_TRS_COMMIT",
       "displayName": "MariaDB TX log flush policy",
       "description": "Sets policy for when transaction logs are flushed to disk",
-      "value": 1
+      "value": "1"
     },
     {
       "name": "MYSQL_CHARACTER_SET_SERVER",
