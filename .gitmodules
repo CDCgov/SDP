@@ -1,3 +1,9 @@
 [submodule "ansible/openshift"]
 	path = ansible/openshift
 	url = https://github.com/openshift/openshift-ansible
+[submodule "docker_containers/mysql-container"]
+	path = docker_containers/mysql-container
+	url = https://github.com/sclorg/mysql-container.git
+[submodule "docker_containers/mariadb-container"]
+	path = docker_containers/mariadb-container
+	url = https://github.com/sclorg/mariadb-container.git
