@@ -106,6 +106,10 @@
                     "value": "${MYSQL_DATABASE}"
                   },
                   {
+                    "name": "MYSQL_LOWER_CASE_TABLE_NAMES",
+                    "value": "${MYSQL_LOWER_CASE_TABLE_NAMES}"
+                  },
+                  {
                     "name": "MYSQL_INNODB_FLUSH_LOG_AT_TRX_COMMIT",
                     "value": "${MYSQL_INNODB_FLUSH_LOG_AT_TRX_COMMIT}"
                   },
