@@ -1,4 +1,0 @@
-registry=http://registry.npmjs.org/
-proxy=http://gatekeeper.mitre.org:80/
-http-proxy=http://gatekeeper.mitre.org:80/
-https-proxy=http://gatekeeper.mitre.org:80/

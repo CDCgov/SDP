@@ -19,9 +19,6 @@ RUN yum install -y centos-release-scl-rh && \
     rpm -V $INSTALL_PKGS && \
     yum clean all -y
 
-# Put in place a config file that will use the proxy server
-COPY contrib/npmrc /opt/rh/rh-nodejs4/root/usr/etc/npmrc
-
 RUN chown -R 1001:0 $HOME && \
     chmod -R g+rw $HOME
 
