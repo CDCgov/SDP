@@ -3,7 +3,8 @@
   remote_user: root
 
   vars:
-    next_part_num: "{{ ansible_devices.sda.partitions|length + 1}}"
+    docker_drive: "xvdb"
+    next_part_num: "{{ ansible_devices.xvdb.partitions|length + 1}}"
 
   tasks:
   - name: Ensure SELINUX is enabled
@@ -21,6 +22,8 @@
   - name: Install required base packages
     yum: state=present name={{ item }}
     with_items:
+    - lvm2
+    - NetworkManager
     - wget
     - git
     - net-tools
@@ -28,6 +31,9 @@
     - iptables-services
     - bridge-utils
     - bash-completion
+
+  - name: Start NetworkManager service
+    service: name=NetworkManager enabled=yes state=started
 
   - name: Install Docker package
     yum: name=docker state=latest
@@ -39,30 +45,34 @@
       regexp=^OPTIONS=
       state=present
 
+  - name: Create partition table
+    command: /usr/sbin/parted /dev/{{ docker_drive }} --script -- mklabel gpt
+    when: hostvars[inventory_hostname]['ansible_devices'][docker_drive]['partitions']|length == 0
+
   - name: Read partition table
-    command: /usr/sbin/parted /dev/sda --script -- print free
+    command: /usr/sbin/parted /dev/{{ docker_drive }} --script -- print free
     register: part_table
     changed_when: False
 
   - name: Find free space on disk for docker
-    shell: /usr/sbin/parted /dev/sda --script -- unit s print free | tail -n 2
+    shell: /usr/sbin/parted /dev/{{ docker_drive }} --script -- unit s print free | tail -n 2
     register: disk_free_space
     changed_when: False
 
   - name: Find start of free space for docker
-    shell: /usr/sbin/parted /dev/sda --script -- unit s print free | tail -n 2 | awk -e '{print $1}'
+    shell: /usr/sbin/parted /dev/{{ docker_drive }} --script -- unit s print free | tail -n 2 | awk -e '{print $1}'
     register: disk_free_start
     changed_when: False
     when: disk_free_space.stdout.find('Free Space') != -1
 
   - name: Find end of free space for docker
-    shell: /usr/sbin/parted /dev/sda --script -- unit s print free | tail -n 2 | awk -e '{print $2}'
+    shell: /usr/sbin/parted /dev/{{ docker_drive }} --script -- unit s print free | tail -n 2 | awk -e '{print $2}'
     register: disk_free_end
     changed_when: False
     when: disk_free_space.stdout.find('Free Space') != -1
 
   - name: Add new partition for docker storage
-    command: /usr/sbin/parted /dev/sda --script -- mkpart primary {{ disk_free_start.stdout }} {{ disk_free_end.stdout }} set {{ next_part_num }} lvm on name {{ next_part_num }} docker
+    command: /usr/sbin/parted /dev/{{ docker_drive }} --script -- mkpart primary {{ disk_free_start.stdout }} {{ disk_free_end.stdout }} set {{ next_part_num }} lvm on name {{ next_part_num }} docker
     when:
       part_table.stdout.find('docker') == -1
     notify:
@@ -71,19 +81,19 @@
   - meta: flush_handlers
 
   - name: Re-read partition table
-    command: /usr/sbin/parted /dev/sda --script -- print free
+    command: /usr/sbin/parted /dev/{{ docker_drive }} --script -- print free
     register: part_table
     changed_when: False
 
   - name: Get docker partition number
-    shell: /usr/sbin/parted /dev/sda --script -- print free | grep "docker" | awk -e '{print $1}'
+    shell: /usr/sbin/parted /dev/{{ docker_drive }} --script -- print free | grep "docker" | awk -e '{print $1}'
     register: docker_part_num
     changed_when: False
     failed_when: part_table.stdout.find('docker') == -1
     when: part_table.stdout.find('docker') != -1
 
   - name: Create docker LVM volume group
-    lvg: vg=docker-vg pvs=/dev/sda{{ docker_part_num.stdout }}
+    lvg: vg=docker-vg pvs=/dev/{{ docker_drive }}{{ docker_part_num.stdout }}
 
   - name: Get LVM logical volume list
     command: /usr/sbin/lvs --noheadings
@@ -107,4 +117,4 @@
 
   handlers:
   - name: reread partition table
-    command: /usr/sbin/partprobe /dev/sda
+    command: /usr/sbin/partprobe /dev/{{ docker_drive }}
