@@ -24,8 +24,6 @@ LABEL io.k8s.description="Platform for building and running Go applications" \
 # MITRE Additions
 #######################
 
-ENV http_proxy=http://gatekeeper.mitre.org:80/ https_proxy=http://gatekeeper.mitre.org:80/
-
 # Add MITRE CA certificates to system trusted store
 COPY certs/*.pem /etc/pki/ca-trust/source/anchors/
 RUN /usr/bin/update-ca-trust extract
