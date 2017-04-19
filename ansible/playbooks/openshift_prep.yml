@@ -3,8 +3,8 @@
   remote_user: root
 
   vars:
-    docker_drive: "xvdb"
-    next_part_num: "{{ ansible_devices.xvdb.partitions|length + 1}}"
+    docker_drive: "sda"
+    next_part_num: "{{ ansible_devices.sda.partitions|length + 1}}"
 
   tasks:
   - name: Ensure SELINUX is enabled
@@ -19,6 +19,19 @@
       regexp=^SELINUXTYPE=
       line=SELINUXTYPE=targeted
 
+  - name: Disable RHSM repositories
+    command: /usr/bin/subscription-manager repos --disable="*"
+
+  - name: Disable all yum repositories
+    command: /usr/bin/yum-config-manager --disable \*
+
+  - name: Enable OCP required repositories
+    command: /usr/bin/subscription-manager repos --enable="{{ item }}"
+    with_items:
+    - rhel-7-server-rpms
+    - rhel-7-server-extras-rpms
+    - rhel-7-server-ose-3.4-rpms
+
   - name: Install required base packages
     yum: state=present name={{ item }}
     with_items:
@@ -32,6 +45,18 @@
     - bridge-utils
     - bash-completion
 
+  - name: Install OpenShift utilities
+    yum: state=present name=atomic-openshift-utils
+
+  - name: Install OpenShift excluder packages
+    yum: state=present name={{ item }}
+    with_items:
+    - atomic-openshift-excluder
+    - atomic-openshift-docker-excluder
+
+  - name: Disable OpenShift excludes for install
+    command: /usr/sbin/atomic-openshift-excluder unexclude
+
   - name: Start NetworkManager service
     service: name=NetworkManager enabled=yes state=started
 
@@ -41,9 +66,11 @@
   - name: Add --insecure-registry option to docker options
     lineinfile:
       dest=/etc/sysconfig/docker
-      line="OPTIONS='--selinux-enabled --log-driver=journald --insecure-registry 172.30.0.0/16'"
-      regexp=^OPTIONS=
+      insertafter="^#\s*INSECURE_REGISTRY="
+      line="INSECURE_REGISTRY='--insecure-registry 172.30.0.0/16'"
       state=present
+    notify:
+    - restart docker
 
   - name: Create partition table
     command: /usr/sbin/parted /dev/{{ docker_drive }} --script -- mklabel gpt
@@ -118,3 +145,5 @@
   handlers:
   - name: reread partition table
     command: /usr/sbin/partprobe /dev/{{ docker_drive }}
+  - name: restart docker
+    command: /usr/bin/systemctl restart docker
