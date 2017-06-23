@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: Template
+metadata:
+  creationTimestamp: null
+  name: phinvadssync-template
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    annotations:
+      openshift.io/display-name: PHINVADS Sync
+      name: phinvads-sync
+    name: phinvads-sync
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    annotations:
+      openshift.io/generated-by: OpenShiftWebConsole
+    creationTimestamp: null
+    labels:
+      app: phinvads-sync
+    name: phinvads-sync
+  spec:
+    nodeSelector: null
+    output:
+      to:
+        kind: ImageStreamTag
+        name: phinvads-sync:latest
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      git:
+        ref: master
+        uri: https://github.com/CDCgov/phinvads-sync-util.git
+      type: Git
+    strategy:
+      sourceStrategy:
+        from:
+          kind: ImageStreamTag
+          name: redhat-openjdk18-openshift:1.0
+          namespace: openshift
+      type: Source
+    triggers:
+    - generic:
+        secret: ***REMOVED***
+      type: Generic
+    - github:
+        secret: ***REMOVED***
+      type: GitHub
+    - imageChange: {}
+      type: ImageChange
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    annotations:
+      openshift.io/generated-by: OpenShiftWebConsole
+    creationTimestamp: null
+    generation: 1
+    labels:
+      app: phinvads-sync
+    name: phinvads-sync
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: phinvads-sync
+    strategy:
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: phinvads-sync
+          deploymentconfig: phinvads-sync
+      spec:
+        containers:
+        - image: phinvads-sync:latest
+          imagePullPolicy: Always
+          name: phinvads-sync
+          ports:
+          - containerPort: 8080
+            protocol: TCP
+          - containerPort: 8443
+            protocol: TCP
+          - containerPort: 8778
+            protocol: TCP
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              memory: 500Mi
+          terminationMessagePath: /dev/termination-log
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+    test: false
+    triggers:
+    - imageChangeParams:
+        containerNames:
+        - phinvads-sync
+        from:
+          kind: ImageStreamTag
+          name: phinvads-sync:latest
+          namespace: sdp
+      type: ImageChange
+  status: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    annotations:
+      openshift.io/generated-by: OpenShiftWebConsole
+    creationTimestamp: null
+    labels:
+      app: phinvads-sync
+    name: phinvads-sync
+  spec:
+    ports:
+    - name: 8080-tcp
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    - name: 8443-tcp
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+    - name: 8778-tcp
+      port: 8778
+      protocol: TCP
+      targetPort: 8778
+    selector:
+      deploymentconfig: phinvads-sync
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: batch/v2alpha1
+  kind: ScheduledJob
+  metadata:
+    creationTimestamp: null
+    name: phinvadssync
+  spec:
+    concurrencyPolicy: Forbid
+    jobTemplate:
+      metadata:
+        creationTimestamp: null
+      spec:
+        template:
+          metadata:
+            creationTimestamp: null
+            labels:
+              app: phinvadssync
+            name: phinvadssync
+          spec:
+            containers:
+            - image: ${IMAGE_REGISTRY}/sdp/phinvads-sync:latest
+              imagePullPolicy: Always
+              name: phinvadssync
+              resources: {}
+              terminationMessagePath: /dev/termination-log
+            dnsPolicy: ClusterFirst
+            restartPolicy: Never
+            securityContext: {}
+            terminationGracePeriodSeconds: 30
+    schedule: 16 0 * * *
+    suspend: false
+parameters:
+- description: IP addres of Docker registry containing PHINVADS sync image.
+  name: IMAGE_REGISTRY
+  value: {{docker_registry_addr}}:5000
