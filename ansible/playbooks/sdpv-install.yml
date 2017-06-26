@@ -125,14 +125,67 @@
     failed_when: False
     changed_when: False
 
+  - name: Generate SECRET_KEY_BASE for Vocab service
+    command: /bin/bash -c "dd if=/dev/urandom bs=2048 count=1  | tr -dc 'a-z0-9' | fold -w 128 | head -n 1"
+    register: vocab_secret_generator_stdout
+    run_once: trure
+    changed_when: False
+
+  - name: Set vocab secret fact
+    set_fact:
+      sdpv_secret_key_base: "{{vocab_secret_generator_stdout.stdout}}"
+    run_once: true
+
   - name: Deploy Vocabulary service
-    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE=***REMOVED*** -e PUMA_WORKERS=5 -n {{sdp_proj_name}}
+    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE={{sdpv_secret_key_base}} -e PUMA_WORKERS=5 -e DISABLE_USER_REGISTRATION=true -n {{sdp_proj_name}}
     run_once: true
     register: sdp_vocab_output
     when: sdp_vocab_exists.rc != 0
 
   - name: Set Vocabulary Build Config Environment vars
-    command: /usr/bin/oc set env bc/vocabulary SECRET_KEY_BASE=***REMOVED*** RAILS_ENV=production OPENSHIFT_APP_NAME=vocabulary OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} OPENSHIFT_POSTGRESQL_DB_HOST=postgresql OPENSHIFT_POSTGRESQL_DB_PORT=5432
+    command: /usr/bin/oc set env bc/vocabulary SECRET_KEY_BASE={{sdpv_secret_key_base}} RAILS_ENV=production OPENSHIFT_APP_NAME=vocabulary OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} OPENSHIFT_POSTGRESQL_DB_HOST=postgresql OPENSHIFT_POSTGRESQL_DB_PORT=5432
+    run_once: true
+    when: sdp_vocab_exists.rc != 0
+
+  - name: Create Vocabulary service route
+    command: /usr/bin/oc create route edge --service=vocabulary
+    run_once: true
+    when: sdp_vocab_output.rc == 0
+
+  - name: Get assigned Vocabulary service hostname
+    command: oc get route vocabulary --template={% raw %}'{{.spec.host}}'{% endraw %}
+    run_once: true
+    register: sdp_vocab_route_host_out
+
+  - name: Set Vocab service route host fact
+    set_fact:
+      sdpv_route_host: "{{sdp_vocab_route_host_out.stdout}}"
+    run_once: true
+
+  - name: Check for Vocab Config Map
+    command: /usr/bin/oc get configmap vocab-sams-config -n {{sdp_proj_name}}
+    run_once: true
+    register: vocab_cm_exists
+    failed_when: "vocab_cm_exists.rc == 1 and 'not found' not in vocab_cm_exists.stderr"
+    changed_when: False
+
+  - name: Copy Vocab SAMS Config Yaml
+    run_once: true
+    template:
+      src=../templates/sdp/vocab_sams_config.j2
+      dest=/tmp/vocab_sams_config.yaml
+      owner=root
+      group=root
+      mode=0644
+    when: vocab_cm_exists.rc != 0
+
+  - name: Create Vocab SAMS Config Map
+    command: /usr/bin/oc create configmap vocab-sams-config --from-file=production.yaml=/tmp/vocab_sams_config.yaml
+    run_once: true
+    when: vocab_cm_exists.rc != 0
+
+  - name: Attach Vocab SAMS config to deployment
+    command: /usr/bin/oc set volumes dc/vocabulary --add --name=config-volume --mount-path=/opt/app-root/src/config/settings --type=configmap --configmap-name=vocab-sams-config
     run_once: true
     when: sdp_vocab_exists.rc != 0
 
