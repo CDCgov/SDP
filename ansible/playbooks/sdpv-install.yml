@@ -7,7 +7,7 @@
     sdp_concept_repo: "https://github.com/CDCgov/concept-dictionary-manager.git"
     sdp_concept_repo_branch: "master"
     sdp_go_ver: "1.7"
-    sdp_proj_name: "sdp-test"
+    sdp_proj_name: "sdp"
     sdp_proj_display_name: "Test: Surveillance Data Platform"
     sdp_proj_description: "Shared services to support public health surveillance"
     sdp_vocab_image: openshift/ruby
@@ -137,7 +137,7 @@
     run_once: true
 
   - name: Deploy Vocabulary service
-    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE={{sdpv_secret_key_base}} -e PUMA_WORKERS=5 -e CA_TRUST_CERTIFICATE=/etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt -n {{sdp_proj_name}}
+    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE={{sdpv_secret_key_base}} -e PUMA_WORKERS=5 -e CA_TRUST_CERTIFICATE=/etc/pki/ca-trust/extracted/openssl/SAMS_CA_trust.crt -n {{sdp_proj_name}}
     run_once: true
     register: sdp_vocab_output
     when: sdp_vocab_exists.rc != 0
@@ -184,10 +184,35 @@
     run_once: true
     when: vocab_cm_exists.rc != 0
 
+  - name: Check for SAMS CA cert Config Map
+    command: /usr/bin/oc get configmap sams-openid-ca-chain -n {{sdp_proj_name}}
+    run_once: true
+    register: vocab_sams_cm_exists
+    failed_when: "vocab_sams_cm_exists.rc == 1 and 'not found' not in vocab_sams_cm_exists.stderr"
+    changed_when: False
+
+  - name: Copy SAMS CA cert chain
+    run_once: true
+    copy:
+      src=../files/sdp/SAMS_CA_trust.crt
+      dest=/tmp/SAMS_CA_trust.crt
+      owner=root
+      group=root
+      mode=0644
+    when: vocab_sams_cm_exists.rc != 0
+
+  - name: Create SAMS CA cert Config Map
+    command: /usr/bin/oc create configmap sams-openid-ca-chain --from-file=/tmp/SAMS_CA_trust.crt
+    run_once: true
+    when: vocab_sams_cm_exists.rc != 0
+
   - name: Attach Vocab SAMS config to deployment
     command: /usr/bin/oc set volumes dc/vocabulary --add --name=config-volume --mount-path=/opt/app-root/src/config/settings --type=configmap --configmap-name=vocab-sams-config
     run_once: true
     when: sdp_vocab_exists.rc != 0
+
+  - name: Attach SAMS CA trust chain to deployment
+    command: /usr/bin/oc set volumes dc/vocabulary --add --name=sams-ca-chain --mount-path=/etc/pki/ca-trust/extracted/openssl --type=configmap --configmap-name=sams-openid-ca-chain
 
   - name: Check for PHINVADS Sync template
     command: /usr/bin/oc get template phinvadssync-template -n {{sdp_proj_name}}
