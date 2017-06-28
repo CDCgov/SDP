@@ -32,7 +32,7 @@
     changed_when: sdp_postgresql_output.rc == 0
 
   - name: Create ElasticSearch Deployer configmap
-    command: /usr/bin/oc create configmap es-deployer -n {{ sdp_proj_name }} --from-literal=es-cluster-size=1 --from-literal=es-instance-ram=2G --from-literal=es-pvc-dynamic={{use_dynamic_pv}} --from-literal=es-pvc-prefix=es-pvc- --from-literal=ex-pvc-size=10Gi
+    command: /usr/bin/oc create configmap es-deployer -n {{ sdp_proj_name }} --from-literal=es-cluster-size=1 --from-literal=es-instance-ram=2G --from-literal=es-pvc-dynamic={{use_dynamic_pv}} --from-literal=es-pvc-prefix=es-pvc- --from-literal=es-pvc-size=10Gi
     run_once: true
     register: sdp_esdeployer_cm_output
     failed_when: "sdp_esdeployer_cm_output.rc == 1 and 'exists' not in sdp_esdeployer_cm_output.stderr"
@@ -137,13 +137,13 @@
     run_once: true
 
   - name: Deploy Vocabulary service
-    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE={{sdpv_secret_key_base}} -e PUMA_WORKERS=5 -e DISABLE_USER_REGISTRATION=true -e CA_TRUST_CERTIFICATE=/etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt -n {{sdp_proj_name}}
+    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE={{sdpv_secret_key_base}} -e PUMA_WORKERS=5 -e CA_TRUST_CERTIFICATE=/etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt -n {{sdp_proj_name}}
     run_once: true
     register: sdp_vocab_output
     when: sdp_vocab_exists.rc != 0
 
   - name: Set Vocabulary Build Config Environment vars
-    command: /usr/bin/oc set env bc/vocabulary SECRET_KEY_BASE={{sdpv_secret_key_base}} RAILS_ENV=production OPENSHIFT_APP_NAME=vocabulary OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} OPENSHIFT_POSTGRESQL_DB_HOST=postgresql OPENSHIFT_POSTGRESQL_DB_PORT=5432
+    command: /usr/bin/oc set env bc/vocabulary SECRET_KEY_BASE={{sdpv_secret_key_base}} RAILS_ENV=production OPENSHIFT_APP_NAME=vocabulary OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} OPENSHIFT_POSTGRESQL_DB_HOST=postgresql OPENSHIFT_POSTGRESQL_DB_PORT=5432 DISABLE_USER_REGISTRATION=true
     run_once: true
     when: sdp_vocab_exists.rc != 0
 
