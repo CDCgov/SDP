@@ -45,6 +45,7 @@
       owner=root
       group=root
       mode=0644
+    run_once: true
 
   - name: Install es-deployer-account template
     command: /usr/bin/oc create -f /tmp/es-deployer-account-template.yml -n openshift
@@ -112,6 +113,7 @@
     register: sdp_concept_exists
     failed_when: False
     changed_when: False
+    run_once: true
 
   - name: Deploy Concept service
     command: /usr/bin/oc new-app {{sdp_concept_image}}:{{sdp_go_ver}}~{{sdp_concept_repo}}#{{sdp_concept_repo_branch}} --name=concept-manager -e ELASTIC_SEARCH_HOST=http://es:9200 -n {{sdp_proj_name}}
@@ -124,11 +126,12 @@
     register: sdp_vocab_exists
     failed_when: False
     changed_when: False
+    run_once: true
 
   - name: Generate SECRET_KEY_BASE for Vocab service
     command: /bin/bash -c "dd if=/dev/urandom bs=2048 count=1  | tr -dc 'a-z0-9' | fold -w 128 | head -n 1"
     register: vocab_secret_generator_stdout
-    run_once: trure
+    run_once: true
     changed_when: False
 
   - name: Set vocab secret fact
@@ -213,6 +216,7 @@
 
   - name: Attach SAMS CA trust chain to deployment
     command: /usr/bin/oc set volumes dc/vocabulary --add --name=sams-ca-chain --mount-path=/etc/pki/ca-trust/extracted/openssl --type=configmap --configmap-name=sams-openid-ca-chain
+    run_once: true
 
   - name: Check for PHINVADS Sync template
     command: /usr/bin/oc get template phinvadssync-template -n {{sdp_proj_name}}
