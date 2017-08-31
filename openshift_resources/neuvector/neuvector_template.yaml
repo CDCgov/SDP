@@ -107,16 +107,8 @@ objects:
           name: manager
           resources: []
           env:
-          - name: CLUSTER_JOIN_ADDR
-            valueFrom:
-              fieldRef:
-                fieldPath: status.podIP
-          - name: CLUSTER_ADVERTISED_ADDR
-            valueFrom:
-              fieldRef:
-                fieldPath: status.podIP
-          - name: CTRL_PATH_DEBUG
-            value: "0"
+          - name: CTRL_SERVER_IP
+            value: ${NEUVECTOR_CONTROLLER_SVC_NAME}.${PROJECT}
           terminationMessagePath: /dev/manager-log
           securityContext:
             capabilities: []
