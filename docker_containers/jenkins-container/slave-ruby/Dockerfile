@@ -14,18 +14,21 @@ ENV RUBY_VERSION=2.3 \
 COPY contrib/bin/scl_enable /usr/local/bin/scl_enable
 
 # Install Ruby
-RUN INSTALL_PKGS="rh-ruby23 rh-ruby23-ruby-devel rh-ruby23-rubygem-rake rh-ruby23-rubygem-bundler rh-nodejs4 postgresql-devel qt5-qtwebkit-devel xorg-x11-server-Xvfb mesa-dri-drivers make gcc fontconfig bzip2" && \
+RUN INSTALL_PKGS="rh-ruby23 rh-ruby23-ruby-devel rh-ruby23-rubygem-rake rh-ruby23-rubygem-bundler rh-nodejs4 postgresql-devel qtwebkit-devel xorg-x11-server-Xvfb mesa-dri-drivers make gcc fontconfig bzip2" && \
     yum-config-manager --enable centos-sclo-rh-testing && \
     yum install -y --setopt=tsflags=nodocs epel-release && \
     yum install -y --enablerepo=centosplus --setopt=tsflags=nodocs $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
     yum clean all -y && \
     systemd-machine-id-setup && \
-    alternatives --install /usr/bin/qmake qmake /usr/lib64/qt5/bin/qmake 100 && \
+    alternatives --install /usr/bin/qmake qmake /usr/bin/qmake-qt4 100 && \
     curl -L https://bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-linux-x86_64.tar.bz2 | \
     tar -jx && \
     mv phantomjs*/bin/phantomjs /usr/local/bin && \
     rm -rf phantomjs-*
+
+# Put in place a config file that will use the proxy server
+COPY contrib/npmrc /opt/rh/rh-nodejs4/root/usr/etc/npmrc
 
 RUN chown -R 1001:0 $HOME && \
     chmod -R g+rw $HOME

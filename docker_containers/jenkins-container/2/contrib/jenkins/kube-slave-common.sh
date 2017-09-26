@@ -24,12 +24,14 @@ JNLP_PORT=${!T_PORT}
 
 export JNLP_PORT=${JNLP_PORT:-50000}
 
-NODEJS_SLAVE=registry.access.redhat.com/openshift3/jenkins-slave-nodejs-rhel7
-MAVEN_SLAVE=registry.access.redhat.com/openshift3/jenkins-slave-maven-rhel7
+NODEJS_SLAVE=${NODEJS_SLAVE_IMAGE:-registry.access.redhat.com/openshift3/jenkins-slave-nodejs-rhel7}
+MAVEN_SLAVE=${MAVEN_SLAVE_IMAGE:-registry.access.redhat.com/openshift3/jenkins-slave-maven-rhel7}
+RUBY_SLAVE=${RUBY_SLAVE_IMAGE:-registry.access.redhat.com/openshift3/jenkins-slave-ruby-rhel7}
 # if the master is running the centos image, use the centos slave images.
 if [[ `grep CentOS /etc/redhat-release` ]]; then
-  NODEJS_SLAVE=openshift/jenkins-slave-nodejs-centos7
-  MAVEN_SLAVE=openshift/jenkins-slave-maven-centos7
+  NODEJS_SLAVE=${NODEJS_SLAVE_IMAGE:-openshift/jenkins-slave-nodejs-centos7}
+  MAVEN_SLAVE=${MAVEN_SLAVE_IMAGE:-openshift/jenkins-slave-maven-centos7}
+  RUBY_SLAVE=${RUBY_SLAVE_IMAGE:-openshift/jenkins-slave-ruby-centos7}
 fi
 
 
@@ -58,91 +60,115 @@ function has_service_account() {
 if has_service_account; then
   export oc_auth="--token=$(cat $AUTH_TOKEN) --certificate-authority=${KUBE_CA}"
   export oc_cmd="oc --server=$OPENSHIFT_API_URL ${oc_auth}"
-  export oc_serviceaccount_name="$(expr "$(oc whoami)" : 'system:serviceaccount:\w\+:\(\w\+\)' || true)"
+  export oc_serviceaccount_name="$(expr "$(oc whoami)" : 'system:serviceaccount:[a-z0-9][-a-z0-9]*:\([a-z0-9][-a-z0-9]*\)' || true)"
 fi
-
-# get_imagestream_names returns a list of image streams that match the
-# SLAVE_LABEL
-function get_is_names() {
-  [ -z "$oc_cmd" ] && return
-  $oc_cmd get is -n "${PROJECT_NAME}" -l role=${SLAVE_LABEL} -o template --template "{{range .items}}{{.metadata.name}} {{end}}"
-}
-
-# convert_is_to_slave converts the OpenShift imagestream to a Jenkins Kubernetes
-# Plugin slave configuration.
-function convert_is_to_slave() {
-  [ -z "$oc_cmd" ] && return
-  local name=$1
-  local template_file=$(mktemp)
-  local template="
-  <org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
-    <name>{{.metadata.name}}</name>
-    <image>{{.status.dockerImageRepository}}</image>
-    <privileged>false</privileged>
-    <command></command>
-    <args></args>
-    <instanceCap>5</instanceCap>
-    <volumes/>
-    <envVars/>
-    <nodeSelector/>
-    <serviceAccount>${oc_serviceaccount_name}</serviceAccount>
-    <remoteFs>{{if index .metadata.annotations \"slave-directory\"}}{{index .metadata.annotations \"slave-directory\"}}{{else}}${DEFAULT_SLAVE_DIRECTORY}{{end}}</remoteFs>
-    <label>{{if index .metadata.annotations \"slave-label\"}}{{index .metadata.annotations \"slave-label\"}}{{else}}${name}{{end}}</label>
-  </org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
-  "
-  echo "${template}" > ${template_file}
-  $oc_cmd get -n "${PROJECT_NAME}" is/${name} -o templatefile --template ${template_file}
-  rm -f ${template_file} &>/dev/null
-}
 
 # generate_kubernetes_config generates a configuration for the kubernetes plugin
 function generate_kubernetes_config() {
     [ -z "$oc_cmd" ] && return
-    local slave_templates=""
-    if has_service_account; then
-      for name in $(get_is_names); do
-        slave_templates+=$(convert_is_to_slave ${name})
-      done
-    else
-      return
-    fi
+    [ ! has_service_account ] && return
+    local crt_contents=$(cat "${KUBE_CA}")
     echo "
     <org.csanchez.jenkins.plugins.kubernetes.KubernetesCloud>
       <name>openshift</name>
       <templates>
         <org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
+          <inheritFrom></inheritFrom>
           <name>maven</name>
-          <image>${MAVEN_SLAVE}</image>
-          <privileged>false</privileged>
-          <command></command>
-          <args></args>
-          <remoteFs>/home/jenkins</remoteFs>
           <instanceCap>2147483647</instanceCap>
+          <idleMinutes>0</idleMinutes>
           <label>maven</label>
-          <volumes/>
-          <envVars/>
-          <nodeSelector/>
-          <remoteFs>/tmp</remoteFs>
           <serviceAccount>${oc_serviceaccount_name}</serviceAccount>
+          <nodeSelector></nodeSelector>
+          <volumes/>
+          <containers>
+            <org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+              <name>jnlp</name>
+              <image>${MAVEN_SLAVE}</image>
+              <privileged>false</privileged>
+              <alwaysPullImage>false</alwaysPullImage>
+              <workingDir>/tmp</workingDir>
+              <command></command>
+              <args>\${computer.jnlpmac} \${computer.name}</args>
+              <ttyEnabled>false</ttyEnabled>
+              <resourceRequestCpu></resourceRequestCpu>
+              <resourceRequestMemory></resourceRequestMemory>
+              <resourceLimitCpu></resourceLimitCpu>
+              <resourceLimitMemory></resourceLimitMemory>
+              <envVars/>
+            </org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+          </containers>
+          <envVars/>
+          <annotations/>
+          <imagePullSecrets/>
+          <nodeProperties/>
         </org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
         <org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
+          <inheritFrom></inheritFrom>
           <name>nodejs</name>
-          <image>${NODEJS_SLAVE}</image>
-          <privileged>false</privileged>
-          <command></command>
-          <args></args>
-          <remoteFs>/home/jenkins</remoteFs>
           <instanceCap>2147483647</instanceCap>
+          <idleMinutes>0</idleMinutes>
           <label>nodejs</label>
-          <volumes/>
-          <envVars/>
-          <nodeSelector/>
           <serviceAccount>${oc_serviceaccount_name}</serviceAccount>
+          <nodeSelector></nodeSelector>
+          <volumes/>
+          <containers>
+            <org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+              <name>jnlp</name>
+              <image>${NODEJS_SLAVE}</image>
+              <privileged>false</privileged>
+              <alwaysPullImage>false</alwaysPullImage>
+              <workingDir>/tmp</workingDir>
+              <command></command>
+              <args>\${computer.jnlpmac} \${computer.name}</args>
+              <ttyEnabled>false</ttyEnabled>
+              <resourceRequestCpu></resourceRequestCpu>
+              <resourceRequestMemory></resourceRequestMemory>
+              <resourceLimitCpu></resourceLimitCpu>
+              <resourceLimitMemory></resourceLimitMemory>
+              <envVars/>
+            </org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+          </containers>
+          <envVars/>
+          <annotations/>
+          <imagePullSecrets/>
+          <nodeProperties/>
         </org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
-      ${slave_templates}
+        <org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
+          <inheritFrom></inheritFrom>
+          <name>ruby</name>
+          <instanceCap>2147483647</instanceCap>
+          <idleMinutes>0</idleMinutes>
+          <label>ruby</label>
+          <serviceAccount>${oc_serviceaccount_name}</serviceAccount>
+          <nodeSelector></nodeSelector>
+          <volumes/>
+          <containers>
+            <org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+              <name>jnlp</name>
+              <image>${RUBY_SLAVE}</image>
+              <privileged>false</privileged>
+              <alwaysPullImage>false</alwaysPullImage>
+              <workingDir>/tmp</workingDir>
+              <command></command>
+              <args>\${computer.jnlpmac} \${computer.name}</args>
+              <ttyEnabled>false</ttyEnabled>
+              <resourceRequestCpu></resourceRequestCpu>
+              <resourceRequestMemory></resourceRequestMemory>
+              <resourceLimitCpu></resourceLimitCpu>
+              <resourceLimitMemory></resourceLimitMemory>
+              <envVars/>
+            </org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+          </containers>
+          <envVars/>
+          <annotations/>
+          <imagePullSecrets/>
+          <nodeProperties/>
+        </org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
       </templates>
       <serverUrl>https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}</serverUrl>
-      <skipTlsVerify>true</skipTlsVerify>
+      <skipTlsVerify>false</skipTlsVerify>
+      <serverCertificate>${crt_contents}</serverCertificate>
       <namespace>${PROJECT_NAME}</namespace>
       <jenkinsUrl>http://${JENKINS_SERVICE_HOST}:${JENKINS_SERVICE_PORT}</jenkinsUrl>
       <jenkinsTunnel>${JNLP_HOST}:${JNLP_PORT}</jenkinsTunnel>

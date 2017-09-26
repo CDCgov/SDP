@@ -2,33 +2,56 @@ FROM centos:centos7
 
 MAINTAINER Ben Parees <bparees@redhat.com>
 
-ENV HOME=/home/jenkins \
-    http_proxy=http://gatekeeper.mitre.org:80/ \
-    https_proxy=http://gatekeeper.mitre.org:80/ \
-    no_proxy=172.30.0.1,172.30.111.77,172.30.253.251,.local
+ENV HOME=/home/jenkins
 
 USER root
 
-# Add MITRE CA certificates to system trusted store
-COPY certs/*.pem /etc/pki/ca-trust/source/anchors/
-RUN /usr/bin/update-ca-trust extract
-
 # Install headless Java
 RUN yum install -y centos-release-scl-rh && \
-    INSTALL_PKGS="bc gettext git java-1.8.0-openjdk-headless lsof nss_wrapper rsync tar unzip which zip" && \
+    INSTALL_PKGS="bc gettext git java-1.8.0-openjdk-headless java-1.8.0-openjdk-headless.i686 lsof rsync tar unzip which zip" && \
     yum install -y --setopt=tsflags=nodocs install $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
     yum clean all && \
+    set -o pipefail && curl -L https://github.com/openshift/origin/releases/download/v1.4.1/openshift-origin-client-tools-v1.4.1-3f9807a-linux-64bit.tar.gz | \
+    tar -zx && \
+    mv openshift*/oc /usr/local/bin && \
+    rm -rf openshift-origin-client-tools-* && \
     mkdir -p /home/jenkins && \
     chown -R 1001:0 /home/jenkins && \
     chmod -R g+w /home/jenkins && \
-    curl -L https://github.com/openshift/origin/releases/download/v1.3.0/openshift-origin-client-tools-v1.3.0-3ab7af3d097b57f933eccef684a714f2368804e7-linux-64bit.tar.gz | \
-    tar -zx && \
-    mv openshift*/oc /usr/local/bin && \
-    rm -rf openshift-origin-client-tools-*
+    chmod 775 /etc/passwd && \
+    chmod -R 775 /etc/alternatives && \
+    chmod -R 775 /var/lib/alternatives && \
+    chmod -R 775 /usr/lib/jvm && \
+    chmod 775 /usr/bin && \
+    chmod 775 /usr/lib/jvm-exports && \
+    chmod 775 /usr/share/man/man1 && \
+    unlink /usr/bin/java && \
+    unlink /usr/bin/jjs && \
+    unlink /usr/bin/keytool && \
+    unlink /usr/bin/orbd && \
+    unlink /usr/bin/pack200 && \
+    unlink /usr/bin/policytool && \
+    unlink /usr/bin/rmid && \
+    unlink /usr/bin/rmiregistry && \
+    unlink /usr/bin/servertool && \
+    unlink /usr/bin/tnameserv && \
+    unlink /usr/bin/unpack200 && \
+    unlink /usr/lib/jvm-exports/jre && \
+    unlink /usr/share/man/man1/java.1.gz && \
+    unlink /usr/share/man/man1/jjs.1.gz && \
+    unlink /usr/share/man/man1/keytool.1.gz && \
+    unlink /usr/share/man/man1/orbd.1.gz && \
+    unlink /usr/share/man/man1/pack200.1.gz && \
+    unlink /usr/share/man/man1/policytool.1.gz && \
+    unlink /usr/share/man/man1/rmid.1.gz && \
+    unlink /usr/share/man/man1/rmiregistry.1.gz && \
+    unlink /usr/share/man/man1/servertool.1.gz && \
+    unlink /usr/share/man/man1/tnameserv.1.gz && \
+    unlink /usr/share/man/man1/unpack200.1.gz
 
 # Copy a remoting jar that honors the no_proxy env variable
-COPY contrib/lib/remoting-2.60.jar /home/jenkins/remoting.jar
+#COPY contrib/lib/remoting-2.60.jar /home/jenkins/remoting.jar
 
 # Copy the entrypoint
 ADD contrib/bin/* /usr/local/bin/

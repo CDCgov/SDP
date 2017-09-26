@@ -9,51 +9,25 @@
 source /usr/local/bin/jenkins-common.sh
 source /usr/local/bin/kube-slave-common.sh
 
-image_config_dir="/opt/openshift/configuration"
-image_config_path="${image_config_dir}/config.xml"
+function update_admin_password() {
+    sed -i "s,<passwordHash>.*</passwordHash>,<passwordHash>$new_password_hash</passwordHash>,g" "${JENKINS_HOME}/users/admin/config.xml"
+    echo $new_password_hash > ${JENKINS_HOME}/password
+}
 
-
-CONTAINER_MEMORY_IN_BYTES=`cat /sys/fs/cgroup/memory/memory.limit_in_bytes`
-DEFAULT_MEMORY_CEILING=$((2**40-1))
-if [ "${CONTAINER_MEMORY_IN_BYTES}" -lt "${DEFAULT_MEMORY_CEILING}" ]; then
-    if [ -z $CONTAINER_HEAP_PERCENT ]; then
-        CONTAINER_HEAP_PERCENT=0.60
-    fi
-    
-    CONTAINER_MEMORY_IN_MB=$((${CONTAINER_MEMORY_IN_BYTES}/1024**2))
-    CONTAINER_HEAP_MAX=$(echo "${CONTAINER_MEMORY_IN_MB} ${CONTAINER_HEAP_PERCENT}" | awk '{ printf "%d", $1 * $2 }')
-    
-    JAVA_MAX_HEAP_PARAM="-Xmx${CONTAINER_HEAP_MAX}m"
-fi 
-
-# Since OpenShift runs this Docker image under random user ID, we have to assign
-# the 'jenkins' user name to this UID. For that we use nss_wrapper
-generate_passwd_file
-
-mkdir /tmp/war
-unzip -q /usr/lib/jenkins/jenkins.war -d /tmp/war
-if [ -e ${JENKINS_HOME}/password ]; then
-  old_salt=$(cat ${JENKINS_HOME}/password | sed 's/:.*//')
-fi
-new_password_hash=`obfuscate_password ${JENKINS_PASSWORD:-password} $old_salt`
-
-
-if [ ! -e ${JENKINS_HOME}/configured ]; then
-  # This container hasn't been configured yet, so copy the default configuration from
-  # the image into the jenkins config path (which should be a volume for persistence).
+function create_jenkins_config_xml() {
+  # copy the default configuration from the image into the jenkins config path (which should be a volume for persistence).
   if [ ! -f "${image_config_path}" ]; then
     # If it contains a template (tpl) file, we can do additional manipulations to customize
     # the configuration.
     if [ -f "${image_config_path}.tpl" ]; then
       export KUBERNETES_CONFIG=$(generate_kubernetes_config)
-      for name in $(get_is_names); do
-        echo "Adding image ${name}:latest as Kubernetes slave ..."
-      done
       echo "Generating kubernetes-plugin configuration (${image_config_path}.tpl) ..."
       envsubst < "${image_config_path}.tpl" > "${image_config_path}"
     fi
   fi
+}
 
+function create_jenkins_credentials_xml() {
   if [ ! -f "${image_config_dir}/credentials.xml" ]; then
     if [ -f "${image_config_dir}/credentials.xml.tpl" ]; then
       if [ ! -z "${KUBERNETES_CONFIG}" ]; then
@@ -65,10 +39,26 @@ if [ ! -e ${JENKINS_HOME}/configured ]; then
       envsubst < "${image_config_dir}/credentials.xml.tpl" > "${image_config_dir}/credentials.xml"
     fi
   fi
+}
 
-  echo "Copying Jenkins configuration to ${JENKINS_HOME} ..."
-  cp -r /opt/openshift/configuration/* ${JENKINS_HOME}
-  rm -rf /opt/openshift/configuration/*
+function install_plugins() {
+  # If the INSTALL_PLUGINS variable is populated, then attempt to install
+  # those plugins before copying them over to JENKINS_HOME
+  # The format of the INSTALL_PLUGINS variable is a comma-separated list
+  # of pluginId:pluginVersion strings
+  if [[ -n "${INSTALL_PLUGINS:-}" ]]; then
+    echo "Installing additional plugins: ${INSTALL_PLUGINS} ..."
+
+    # Create a temporary file in the format of plugins.txt
+    plugins_file=$(mktemp)
+    IFS=',' read -ra plugins <<< "${INSTALL_PLUGINS}"
+    for plugin in "${plugins[@]}"; do
+      echo "${plugin}" >> "${plugins_file}"
+    done
+
+    # Call install plugins with the temporary file
+    /usr/local/bin/install-plugins.sh "${plugins_file}"
+  fi
 
   if [ "$(ls -A /opt/openshift/plugins 2>/dev/null)" ]; then
     mkdir -p ${JENKINS_HOME}/plugins
@@ -76,11 +66,121 @@ if [ ! -e ${JENKINS_HOME}/configured ]; then
     cp -r /opt/openshift/plugins/* ${JENKINS_HOME}/plugins/
     rm -rf /opt/openshift/plugins
   fi
+}
 
-  echo "Creating initial Jenkins 'admin' user ..."
-  sed -i "s,<passwordHash>.*</passwordHash>,<passwordHash>$new_password_hash</passwordHash>,g" "${JENKINS_HOME}/users/admin/config.xml"
-  echo $new_password_hash > ${JENKINS_HOME}/password
-  touch ${JENKINS_HOME}/configured
+#NOTE:  periodically check https://ce-gitlab.usersys.redhat.com/ce/jboss-dockerfiles/blob/develop/scripts/os-java-run/added/java-default-options for updates
+
+#get the fully qualified paths to both 32 and 64 bit java
+JVMPath32bit=`alternatives --display java | grep family | grep i386 | awk '{print $1}'`
+JVMPath64bit=`alternatives --display java | grep family | grep x86_64 | awk '{print $1}'`
+
+
+# set the java version used based on OPENSHIFT_JENKINS_JVM_ARCH
+if [ -z $OPENSHIFT_JENKINS_JVM_ARCH  ]; then
+    echo "Using 64 bit Java since OPENSHIFT_JENKINS_JVM_ARCH is not set (historic setting)"
+    alternatives --set java $JVMPath64bit
+elif [ "${OPENSHIFT_JENKINS_JVM_ARCH}" == "x86_64"  ]; then
+    echo "64 bit Java explicitly set in OPENSHIFT_JENKINS_JVM_ARCH"
+    alternatives --set java $JVMPath64bit
+else
+    echo "OPENSHIFT_JENKINS_JVM_ARCH is set to ${OPENSHIFT_JENKINS_JVM_ARCH} so using 32 bit Java"
+    alternatives --set java $JVMPath32bit
+    export MALLOC_ARENA_MAX=1
+fi
+
+image_config_dir="/opt/openshift/configuration"
+image_config_path="${image_config_dir}/config.xml"
+
+CONTAINER_MEMORY_IN_BYTES=`cat /sys/fs/cgroup/memory/memory.limit_in_bytes`
+DEFAULT_MEMORY_CEILING=$((2**40-1))
+if [ "${CONTAINER_MEMORY_IN_BYTES}" -lt "${DEFAULT_MEMORY_CEILING}" ]; then
+
+    if [ -z $CONTAINER_HEAP_PERCENT ]; then
+        CONTAINER_HEAP_PERCENT=0.50
+    fi
+ 
+    CONTAINER_MEMORY_IN_MB=$((${CONTAINER_MEMORY_IN_BYTES}/1024**2))
+    #if machine has 4GB or less, meaning max heap of 2GB given current default, force use of 32bit to save space unless user
+    #specifically want to force 64bit
+    HEAP_LIMIT_FOR_32BIT=$((2**32-1))
+    HEAP_LIMIT_FOR_32BIT_IN_MB=$((${HEAP_LIMIT_FOR_32BIT}/1024**2))
+    CONTAINER_HEAP_MAX=$(echo "${CONTAINER_MEMORY_IN_MB} ${CONTAINER_HEAP_PERCENT}" | awk '{ printf "%d", $1 * $2 }')
+    if [[ -z $OPENSHIFT_JENKINS_JVM_ARCH && "${CONTAINER_HEAP_MAX}" -lt "${HEAP_LIMIT_FOR_32BIT_IN_MB}"  ]]; then
+      echo "max heap in MB is ${CONTAINER_HEAP_MAX} and 64 bit was not explicitly set so using 32 bit Java"
+      alternatives --set java $JVMPath32bit
+      export MALLOC_ARENA_MAX=1
+    fi
+ 
+    JAVA_MAX_HEAP_PARAM="-Xmx${CONTAINER_HEAP_MAX}m"
+    if [ -z $CONTAINER_INITIAL_PERCENT ]; then
+      # jboss default was 100% or ms==mx
+      JAVA_INITIAL_HEAP_PARAM="-Xms${CONTAINER_HEAP_MAX}m"
+    else
+      CONTAINER_INITIAL_HEAP=$(echo "${CONTAINER_HEAP_MAX} ${CONTAINER_INITIAL_PERCENT}" | awk '{ printf "%d", $1 * $2 }')
+      JAVA_INITIAL_HEAP_PARAM="-Xms${CONTAINER_INITIAL_HEAP}m"
+    fi
+fi
+
+if [ -z "$JAVA_GC_OPTS" ]; then
+  # note - MaxPermSize no longer valid with v8 of the jdk ... used to have -XX:MaxPermSize=100m
+  JAVA_GC_OPTS="-XX:+UseParallelGC -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -XX:MaxMetaspaceSize=100m"
+fi
+
+if [ ! -z "${USE_JAVA_DIAGNOSTICS}" ]; then
+    JAVA_DIAGNOSTICS="-XX:NativeMemoryTracking=summary -XX:+PrintGC -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UnlockDiagnosticVMOptions"
+fi
+
+if [ ! -z "${CONTAINER_CORE_LIMIT}" ]; then
+    JAVA_CORE_LIMIT="-XX:ParallelGCThreads=${CONTAINER_CORE_LIMIT} -Djava.util.concurrent.ForkJoinPool.common.parallelism=${CONTAINER_CORE_LIMIT} -XX:CIComplierCount=2"
+fi
+
+# Since OpenShift runs this Docker image under random user ID, we have to assign
+# the 'jenkins' user name to this UID.
+generate_passwd_file
+
+mkdir /tmp/war
+unzip -q /usr/lib/jenkins/jenkins.war -d /tmp/war
+if [ -e ${JENKINS_HOME}/password ]; then
+  old_salt=$(cat ${JENKINS_HOME}/password | sed 's/:.*//')
+fi
+new_password_hash=`obfuscate_password ${JENKINS_PASSWORD:-password} $old_salt`
+
+# finish the move of the default logs dir, /var/log/jenkins, to the volume mount
+mkdir ${JENKINS_HOME}/logs
+ln -sf ${JENKINS_HOME}/logs /var/log/jenkins
+
+if [ ! -e ${JENKINS_HOME}/configured ]; then
+    # This container hasn't been configured yet
+    create_jenkins_config_xml
+
+    create_jenkins_credentials_xml
+
+    echo "Copying Jenkins configuration to ${JENKINS_HOME} ..."
+    cp -r /opt/openshift/configuration/* ${JENKINS_HOME}
+
+    install_plugins
+
+    echo "Creating initial Jenkins 'admin' user ..."
+
+    update_admin_password
+
+    touch ${JENKINS_HOME}/configured
+else
+  if [ ! -z "${OVERRIDE_PV_CONFIG_WITH_IMAGE_CONFIG}" ]; then
+    echo "Overriding jenkins config.xml stored in ${JENKINS_HOME}/config.xml"
+    rm -f ${JENKINS_HOME}/config.xml
+
+    create_jenkins_config_xml
+
+    cp -r ${image_config_path} ${JENKINS_HOME}
+  fi
+
+  if [ ! -z "${OVERRIDE_PV_PLUGINS_WITH_IMAGE_PLUGINS}" ]; then
+    echo "Overriding plugins stored in ${JENKINS_HOME}/plugins"
+    rm -rf ${JENKINS_HOME}/plugins
+
+    install_plugins
+  fi
 fi
 
 if [ -e ${JENKINS_HOME}/password ]; then
@@ -90,9 +190,8 @@ if [ -e ${JENKINS_HOME}/password ]; then
   # the original value.
   old_password_hash=`cat ${JENKINS_HOME}/password`
   if [ $old_password_hash != $new_password_hash ]; then
-    echo "Detected password environment variable change, updating Jenkins configuration ..."
-    sed -i "s,<passwordHash>.*</passwordHash>,<passwordHash>$new_password_hash</passwordHash>,g" "${JENKINS_HOME}/users/admin/config.xml"
-    echo $new_password_hash > ${JENKINS_HOME}/password
+      echo "Detected password environment variable change, updating Jenkins configuration ..."
+      update_admin_password
   fi
 fi
 
@@ -103,9 +202,14 @@ fi
 
 rm -rf /tmp/war
 
+# default log rotation in /etc/logrotate.d/jenkins handles /var/log/jenkins/access_log
+if [ ! -z "${OPENSHIFT_USE_ACCESS_LOG}" ]; then
+    JENKINS_ACCESSLOG="--accessLoggerClassName=winstone.accesslog.SimpleAccessLogger --simpleAccessLogger.format=combined --simpleAccessLogger.file=/var/log/jenkins/access_log"
+fi
+
 # if `docker run` first argument start with `--` the user is passing jenkins launcher arguments
 if [[ $# -lt 1 ]] || [[ "$1" == "--"* ]]; then
-   exec java $JAVA_MAX_HEAP_PARAM -Duser.home=${HOME} $JAVA_OPTS -Dfile.encoding=UTF8 -jar /usr/lib/jenkins/jenkins.war $JENKINS_OPTS "$@"
+   exec java $JAVA_GC_OPTS $JAVA_INITIAL_HEAP_PARAM $JAVA_MAX_HEAP_PARAM -Duser.home=${HOME} $JAVA_CORE_LIMIT $JAVA_DIAGNOSTICS $JAVA_OPTS -Dfile.encoding=UTF8 -jar /usr/lib/jenkins/jenkins.war $JENKINS_OPTS $JENKINS_ACCESSLOG "$@"
 fi
 
 # As argument is not jenkins, assume user want to run his own process, for sample a `bash` shell to explore this image
