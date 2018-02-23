@@ -1,10 +1,16 @@
-FROM centos:centos7
+FROM openshift/origin:v3.6.1
 
 MAINTAINER Ben Parees <bparees@redhat.com>
 
-ENV HOME=/home/jenkins
+ENV HOME=/home/jenkins \
+    http_proxy=http://gatekeeper.mitre.org:80/ \
+    https_proxy=http://gatekeeper.mitre.org:80/
 
 USER root
+
+# Add MITRE CA certificates to system trusted store
+COPY certs/*.pem /etc/pki/ca-trust/source/anchors/
+RUN /usr/bin/update-ca-trust extract
 
 # Install headless Java
 RUN yum install -y centos-release-scl-rh && \
@@ -12,10 +18,6 @@ RUN yum install -y centos-release-scl-rh && \
     yum install -y --setopt=tsflags=nodocs install $INSTALL_PKGS && \
     rpm -V $INSTALL_PKGS && \
     yum clean all && \
-    set -o pipefail && curl -L https://github.com/openshift/origin/releases/download/v1.4.1/openshift-origin-client-tools-v1.4.1-3f9807a-linux-64bit.tar.gz | \
-    tar -zx && \
-    mv openshift*/oc /usr/local/bin && \
-    rm -rf openshift-origin-client-tools-* && \
     mkdir -p /home/jenkins && \
     chown -R 1001:0 /home/jenkins && \
     chmod -R g+w /home/jenkins && \
@@ -26,6 +28,7 @@ RUN yum install -y centos-release-scl-rh && \
     chmod 775 /usr/bin && \
     chmod 775 /usr/lib/jvm-exports && \
     chmod 775 /usr/share/man/man1 && \
+    chmod 775 /var/lib/origin && \
     unlink /usr/bin/java && \
     unlink /usr/bin/jjs && \
     unlink /usr/bin/keytool && \
