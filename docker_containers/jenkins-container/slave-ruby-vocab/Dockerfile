@@ -19,6 +19,7 @@ RUN INSTALL_PKGS="rh-ruby23 rh-ruby23-ruby-devel rh-ruby23-rubygem-rake rh-ruby2
     yum-config-manager --enable centos-sclo-rh-testing && \
     yum install -y --setopt=tsflags=nodocs epel-release && \
     yum install -y --enablerepo=centosplus --setopt=tsflags=nodocs $INSTALL_PKGS && \
+    yum install -y https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm && \
     rpm -V $INSTALL_PKGS && \
     yum clean all -y && \
     systemd-machine-id-setup && \
@@ -30,7 +31,10 @@ RUN INSTALL_PKGS="rh-ruby23 rh-ruby23-ruby-devel rh-ruby23-rubygem-rake rh-ruby2
     mkdir -p /opt && \
     curl -L https://github.com/yarnpkg/yarn/releases/download/v$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz | \
     tar -C /opt -zx && \
-    ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/bin/yarn
+    ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/bin/yarn && \
+    curl -O -L https://chromedriver.storage.googleapis.com/2.35/chromedriver_linux64.zip && \
+    unzip ./chromedriver_linux64.zip -d /opt && \
+    ln -s /opt/chromedriver /usr/local/bin/chromedriver
 
 # Put in place a config file that will use the proxy server
 COPY contrib/npmrc /opt/rh/rh-nodejs6/root/usr/etc/npmrc
