@@ -12,15 +12,9 @@ LABEL com.redhat.component="jenkins-slave-base-rhel7-docker" \
       io.k8s.description="The jenkins slave base image is intended to be built on top of, to add your own tools that your jenkins job needs. The slave base image includes all the jenkins logic to operate as a slave, so users just have to yum install any additional packages their specific jenkins job will need" \
       io.openshift.tags="openshift,jenkins,slave"
 
-ENV HOME=/home/jenkins \
-    http_proxy=http://gatekeeper.mitre.org:80/ \
-    https_proxy=http://gatekeeper.mitre.org:80/
+ENV HOME=/home/jenkins
 
 USER root
-
-# Add MITRE CA certificates to sysytem trusted store
-COPY certs/*.pem /etc/pki/ca-trust/source/anchors/
-RUN /usr/bin/update-ca-trust extract
 
 # Install headless Java
 RUN yum-config-manager --disable epel >/dev/null || : && \

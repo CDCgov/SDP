@@ -2,15 +2,9 @@ FROM openshift/origin:v3.6.1
 
 MAINTAINER Ben Parees <bparees@redhat.com>
 
-ENV HOME=/home/jenkins \
-    http_proxy=http://gatekeeper.mitre.org:80/ \
-    https_proxy=http://gatekeeper.mitre.org:80/
+ENV HOME=/home/jenkins
 
 USER root
-
-# Add MITRE CA certificates to system trusted store
-COPY certs/*.pem /etc/pki/ca-trust/source/anchors/
-RUN /usr/bin/update-ca-trust extract
 
 # Install headless Java
 RUN yum install -y centos-release-scl-rh && \
