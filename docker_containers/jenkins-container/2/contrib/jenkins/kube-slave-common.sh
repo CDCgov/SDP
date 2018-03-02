@@ -26,6 +26,11 @@ export JNLP_PORT=${JNLP_PORT:-50000}
 
 NODEJS_SLAVE=${NODEJS_SLAVE_IMAGE:-registry.access.redhat.com/openshift3/jenkins-slave-nodejs-rhel7}
 MAVEN_SLAVE=${MAVEN_SLAVE_IMAGE:-registry.access.redhat.com/openshift3/jenkins-slave-maven-rhel7}
+# .NET Core jenkins slave images are only available for RHEL
+# see: https://github.com/redhat-developer/s2i-dotnetcore/issues/36
+if [[ `grep 'Red Hat Enterprise Linux' /etc/redhat-release` ]]; then
+  DOTNET_20_SLAVE=${DOTNET_20_SLAVE:-registry.access.redhat.com/dotnet/dotnet-20-jenkins-slave-rhel7}
+fi
 RUBY_SLAVE=${RUBY_SLAVE_IMAGE:-registry.access.redhat.com/openshift3/jenkins-slave-ruby-rhel7}
 # if the master is running the centos image, use the centos slave images.
 if [[ `grep CentOS /etc/redhat-release` ]]; then
@@ -34,6 +39,14 @@ if [[ `grep CentOS /etc/redhat-release` ]]; then
   RUBY_SLAVE=${RUBY_SLAVE_IMAGE:-openshift/jenkins-slave-ruby-centos7}
 fi
 
+JENKINS_SERVICE_NAME=${JENKINS_SERVICE_NAME:-JENKINS}
+JENKINS_SERVICE_NAME=`echo ${JENKINS_SERVICE_NAME} | tr '[a-z]' '[A-Z]' | tr '-' '_'`
+
+J_HOST=${JENKINS_SERVICE_NAME}_SERVICE_HOST
+JENKINS_SERVICE_HOST=${!J_HOST}
+
+J_PORT=${JENKINS_SERVICE_NAME}_SERVICE_PORT
+JENKINS_SERVICE_PORT=${!J_PORT}
 
 # The project name equals to the namespace name where the container with jenkins
 # runs. You can override it by setting the PROJECT_NAME variable.
@@ -134,6 +147,47 @@ function generate_kubernetes_config() {
           <imagePullSecrets/>
           <nodeProperties/>
         </org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
+    "
+
+    # Add config for .NET Core slave only if variable is defined.
+    # It'll be defined on RHEL only at this point.
+    if [ -n "$DOTNET_20_SLAVE" ]; then
+    echo "
+        <org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
+            <inheritFrom></inheritFrom>
+            <name>dotnet-20</name>
+            <instanceCap>2147483647</instanceCap>
+            <idleMinutes>0</idleMinutes>
+            <label>dotnet-20</label>
+            <serviceAccount>${oc_serviceaccount_name}</serviceAccount>
+            <nodeSelector></nodeSelector>
+            <volumes/>
+            <containers>
+              <org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+                <name>jnlp</name>
+                <image>${DOTNET_20_SLAVE}</image>
+                <privileged>false</privileged>
+                <alwaysPullImage>false</alwaysPullImage>
+                <workingDir>/tmp</workingDir>
+                <command></command>
+                <args>\${computer.jnlpmac} \${computer.name}</args>
+                <ttyEnabled>false</ttyEnabled>
+                <resourceRequestCpu></resourceRequestCpu>
+                <resourceRequestMemory></resourceRequestMemory>
+                <resourceLimitCpu></resourceLimitCpu>
+                <resourceLimitMemory></resourceLimitMemory>
+                <envVars/>
+              </org.csanchez.jenkins.plugins.kubernetes.ContainerTemplate>
+            </containers>
+            <envVars/>
+            <annotations/>
+            <imagePullSecrets/>
+            <nodeProperties/>
+          </org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
+    "
+    fi
+
+    echo "
         <org.csanchez.jenkins.plugins.kubernetes.PodTemplate>
           <inheritFrom></inheritFrom>
           <name>ruby</name>

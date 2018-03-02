@@ -1,13 +1,13 @@
-openshift-pipeline:1.0.49
+openshift-pipeline:1.0.52
 openshift-login:0.12
-openshift-client:0.9.6
+openshift-client:1.0.0
 
 
 # kubernetes plugin - https://wiki.jenkins-ci.org/display/JENKINS/Kubernetes+Plugin
-kubernetes:0.10
+kubernetes:1.0
 
 # fabric8 openshift sync
-openshift-sync:0.1.27
+openshift-sync:0.1.30
 
 # Pipeline plugin - https://wiki.jenkins-ci.org/display/JENKINS/Pipeline+Plugin
 # 2.5 now includes pipeline-model-definition (declaritive pipeline)
@@ -26,6 +26,10 @@ ssh-credentials:1.13
 
 # Pipeline Utility Steps Plugin - https://wiki.jenkins-ci.org/display/JENKINS/Pipeline+Utility+Steps+Plugin
 pipeline-utility-steps:1.1.5
+
+# some plugins helpful for global shared libs were broken out of workflow aggregator
+pipeline-github-lib:1.0
+github-organization-folder:1.6
 
 # Jenkins v2 specific
 matrix-auth:1.5
@@ -55,5 +59,3 @@ pipeline-build-step:2.5.1
 pipeline-input-step:2.8
 workflow-cps:2.39
 script-security:1.31
-
-
