@@ -3,7 +3,7 @@ Repository for CDC's Surveillance Data Platform Shared Services project source c
 
 This GitHub repository was created for use by [CDC](http://www.cdc.gov) programs to collaborate on public health surveillance-related projects in support of the [CDC Surveillance Strategy](http://www.cdc.gov/surveillance). This third-party web application is not hosted by CDC, but it is used by CDC and its partners to share information and collaborate on software. 
 
-Please visit the [SDP CDC Web Site](http://www.cdc.gov/sdp) or [SDP Wiki](https://publichealthsurveillance.atlassian.net/wiki) for more information on the project and new services.
+Please visit the [SDP CDC Web Site](https://www.cdc.gov/surveillance/innovation/sharing-surveillance.html) or [SDP Wiki](https://publichealthsurveillance.atlassian.net/wiki) for more information on the project and new services.
 
 Individual repositories are created and managed for particular services within SDP:
 * [Vocabulary Service](https://github.com/CDCgov/SDP-Vocabulary-Service)
