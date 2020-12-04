@@ -1,0 +1,201 @@
+apiVersion: v1
+kind: "Template"
+metadata:
+  name: es-dev-build-wo-deployer-template
+  annotations:
+    description: "Template for creating local builds of elasticsearch components from source."
+    tags: "infrastructure"
+labels:
+  es-infra: development
+  provider: openshift
+  component: development
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: elasticsearch
+    name: elasticsearch
+  spec: {}
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: es-fluentd
+    name: es-fluentd
+  spec: {}
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: es-kibana
+    name: es-kibana
+  spec: {}
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: es-curator
+    name: es-curator
+  spec: {}
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: es-auth-proxy
+    name: es-auth-proxy
+  spec: {}
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      build: es-deployment
+    name: origin
+  spec:
+    dockerImageRepository: openshift/origin
+    tags:
+    - name: v1.5.0-alpha.2
+      from:
+        kind: DockerImage
+        name: openshift/origin:v1.5.0-alpha.2
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      app: elasticsearch
+    name: elasticsearch
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: elasticsearch:latest
+    resources: {}
+    source:
+      contextDir: elasticsearch
+      git:
+        uri: ${LOGGING_FORK_URL}
+        ref: ${LOGGING_FORK_BRANCH}
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: openshift/base-centos7
+      type: Docker
+    triggers:
+    - type: ConfigChange
+    - type: ImageChange
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      build: es-fluentd
+    name: es-fluentd
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: es-fluentd:latest
+    resources: {}
+    source:
+      contextDir: fluentd
+      git:
+        uri: ${LOGGING_FORK_URL}
+        ref: ${LOGGING_FORK_BRANCH}
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: openshift/base-centos7
+      type: Docker
+    triggers:
+    - type: ConfigChange
+    - type: ImageChange
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      build: es-kibana
+    name: es-kibana
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: es-kibana:latest
+    resources: {}
+    source:
+      contextDir: kibana
+      git:
+        uri: ${LOGGING_FORK_URL}
+        ref: ${LOGGING_FORK_BRANCH}
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: openshift/base-centos7
+      type: Docker
+    triggers:
+    - type: ConfigChange
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      build: es-curator
+    name: es-curator
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: es-curator:latest
+    resources: {}
+    source:
+      contextDir: curator
+      git:
+        uri: ${LOGGING_FORK_URL}
+        ref: ${LOGGING_FORK_BRANCH}
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: openshift/base-centos7
+      type: Docker
+    triggers:
+    - type: ConfigChange
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    labels:
+      build: es-auth-proxy
+    name: es-auth-proxy
+  spec:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: es-auth-proxy:latest
+    resources: {}
+    source:
+      git:
+        uri: ${LOGGING_FORK_URL}
+        ref: ${LOGGING_FORK_BRANCH}
+      contextDir: kibana-proxy
+      type: Git
+    strategy:
+      dockerStrategy:
+        from:
+          kind: DockerImage
+          name: library/node:0.10.36
+      type: Docker
+    triggers:
+    - type: ConfigChange
+parameters:
+-
+  description: 'URL for origin-aggregated-es fork'
+  name: LOGGING_FORK_URL
+  value: https://github.com/openshift/origin-aggregated-es
+-
+  description: 'branch for origin-aggregated-es fork'
+  name: LOGGING_FORK_BRANCH
+  value: master

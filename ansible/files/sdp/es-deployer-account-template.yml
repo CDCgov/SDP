@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Template
+labels:
+  template: "es-deployer-account-template"
+metadata:
+  annotations:
+    description: Template for creating the deployer account and roles needed for the
+      elasticsearch deployer. Create as cluster-admin.
+    tags: database,elastic
+  creationTimestamp: null
+  name: es-deployer-account-template
+objects:
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    labels:
+      component: deployer
+      es-infra: deployer
+      provider: mitre
+    name: es-deployer
+  name: es-deployer
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: elasticsearch
+- apiVersion: v1
+  kind: ClusterRole
+  metadata:
+    name: oauth-editor
+  rules:
+  - resources:
+    - oauthclients
+    verbs:
+    - create
+    - delete
+- apiVersion: v1
+  kind: ClusterRole
+  metadata:
+    name: daemonset-admin
+  rules:
+  - apiGroups:
+    - extensions
+    resources:
+    - daemonsets
+    verbs:
+    - create
+    - get
+    - list
+    - watch
+    - delete
+    - update
+- apiVersion: v1
+  kind: RoleBinding
+  metadata:
+    name: es-deployer-edit-role
+  roleRef:
+    kind: ClusterRole
+    name: edit
+  subjects:
+  - kind: ServiceAccount
+    name: es-deployer
+- apiVersion: v1
+  kind: RoleBinding
+  metadata:
+    name: es-deployer-dsadmin-role
+  roleRef:
+    kind: ClusterRole
+    name: daemonset-admin
+  subjects:
+  - kind: ServiceAccount
+    name: es-deployer
+- apiVersion: v1
+  kind: RoleBinding
+  metadata:
+    name: es-elasticsearch-view-role
+  roleRef:
+    name: view
+  subjects:
+  - kind: ServiceAccount
+    name: elasticsearch

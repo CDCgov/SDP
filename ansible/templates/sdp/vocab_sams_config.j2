@@ -1,0 +1,26 @@
+enable_adobe_analytics: true
+default_url_helper_host: {{sdpv_route_host}}
+elasticsearch:
+  log: false
+  host: es
+openid_connect:
+  name: :openid_connect
+  client_signing_alg: :HS256
+  discovery: false
+  scope:
+    - :openid
+    - :email
+    - :profile
+    - :address
+  response_type: :code
+  issuer: https://{{vault_sdp_openid_service_host}}
+  client_options:
+    identifier: {{vault_sdp_openid_client_identifier}}
+    secret: {{vault_sdp_openid_client_secret}}
+    host: {{vault_sdp_openid_service_host}}
+    redirect_uri: https://{{sdpv_route_host}}/users/auth/openid_connect/callback
+    scheme: 'https'
+    port: 8443
+    authorization_endpoint: '/auth/oauth/v2/authorize'
+    token_endpoint: '/auth/oauth/v2/token'
+    userinfo_endpoint: '/openid/connect/v1/userinfo'

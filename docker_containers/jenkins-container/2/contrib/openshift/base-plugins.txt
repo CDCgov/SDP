@@ -1,0 +1,61 @@
+openshift-pipeline:1.0.52
+openshift-login:0.12
+openshift-client:1.0.0
+
+
+# kubernetes plugin - https://wiki.jenkins-ci.org/display/JENKINS/Kubernetes+Plugin
+kubernetes:1.0
+
+# fabric8 openshift sync
+openshift-sync:0.1.30
+
+# Pipeline plugin - https://wiki.jenkins-ci.org/display/JENKINS/Pipeline+Plugin
+# 2.5 now includes pipeline-model-definition (declaritive pipeline)
+# 2.4 brought in pipeline-milestone-step
+workflow-aggregator:2.5
+
+
+# remote loader https://wiki.jenkins-ci.org/display/JENKINS/Pipeline+Remote+Loader+Plugin
+workflow-remote-loader:1.2
+
+# mercurial - https://wiki.jenkins-ci.org/display/JENKINS/Mercurial+Plugin
+mercurial:1.54
+matrix-project:1.7.1
+multiple-scms:0.6
+ssh-credentials:1.13
+
+# Pipeline Utility Steps Plugin - https://wiki.jenkins-ci.org/display/JENKINS/Pipeline+Utility+Steps+Plugin
+pipeline-utility-steps:1.1.5
+
+# some plugins helpful for global shared libs were broken out of workflow aggregator
+pipeline-github-lib:1.0
+github-organization-folder:1.6
+
+# Jenkins v2 specific
+matrix-auth:1.5
+blueocean:1.1.6
+
+# Legacy stuff
+mapdb-api:1.0.1.0
+subversion:2.9
+
+# explicitly pull in plugins previously pulled in by dependencies because of
+# security advisories  ...exclude plugins from
+# advisories that were not previously pulled in by what is listed above
+# also, as the plugins above raise their dependency levels for these plugins let's see about removing
+# items from the list below
+#
+# processed sec adv https://jenkins.io/blog/2017/07/10/security-advisory/
+# processed sec adv https://jenkins.io/security/advisory/2017-08-07/
+#
+config-file-provider:2.16.2
+docker-commons:1.8
+git:3.3.2
+git-client:2.4.4
+github-branch-source:2.0.8
+job-dsl:1.60
+parameterized-trigger:2.35.1
+pipeline-build-step:2.5.1
+pipeline-input-step:2.8
+workflow-cps:2.39
+script-security:1.31

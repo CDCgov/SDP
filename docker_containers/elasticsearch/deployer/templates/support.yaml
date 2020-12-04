@@ -1,0 +1,173 @@
+apiVersion: "v1"
+kind: "Template"
+metadata:
+  name: support-template-maker
+  annotations:
+    description: "Template to create template for deploying elasticsearch support entities"
+    tags: "infrastructure"
+parameters:
+-
+  description: "A shared secret for the authentication proxy oauth client in front of Kibana"
+  name: OAUTH_SECRET
+  required: true
+-
+  description: 'Specify prefix for es component images; e.g. for "openshift/origin-es-deployment:v1.2", set prefix "openshift/origin-"'
+  name: IMAGE_PREFIX_DEFAULT
+  value: "docker.io/openshift/origin-"
+-
+  description: 'Specify version for es component images; e.g. for "openshift/origin-es-deployment:v1.2", set version "v1.2"'
+  name: IMAGE_VERSION_DEFAULT
+  value: "latest"
+-
+  description: 'Set to "true" if the image registry is not secured with a properly-signed certificate.'
+  name: INSECURE_REGISTRY
+  value: "false"
+objects:
+- apiVersion: "v1"
+  kind: "Template"
+  metadata:
+    name: es-support-template
+    annotations:
+      description: "Template for deploying elasticsearch services, service accounts, and oauthclient."
+      tags: "infrastructure"
+    labels:
+      es-infra: support
+  labels:
+    es-infra: support
+    provider: openshift
+    component: support
+  objects:
+  -
+    apiVersion: "v1"
+    kind: "Service"
+    metadata:
+      name: "es"
+    spec:
+      ports:
+      -
+        port: 9200
+        targetPort: restapi
+      selector:
+        provider: "openshift"
+        component: "es"
+  -
+    apiVersion: "v1"
+    kind: "Service"
+    metadata:
+      name: "es-cluster"
+    spec:
+      portalIP: "None"
+      ports:
+      -
+        port: 9300
+      selector:
+        provider: "openshift"
+        component: "es"
+- apiVersion: "v1"
+  kind: "Template"
+  metadata:
+    name: es-imagestream-template
+    annotations:
+      description: "Template for deploying elasticsearch support entities: imagestreams."
+      tags: "infrastructure"
+    labels:
+      es-infra: support
+  labels:
+    es-infra: support
+    provider: openshift
+    component: support
+  parameters:
+  -
+    description: 'Specify prefix for elasticsearch component images; e.g. for "openshift/es-deployer:v1.2", set prefix "openshift/"'
+    name: IMAGE_PREFIX
+    value: ${IMAGE_PREFIX_DEFAULT}
+  -
+    description: 'Specify version for elasticsearch component images; e.g. for "openshift/es-deployer:v1.2", set version "v1.2"'
+    name: IMAGE_VERSION
+    value: ${IMAGE_VERSION_DEFAULT}
+  objects:
+  -
+    apiVersion: v1
+    kind: ImageStream
+    metadata:
+      annotations:
+        openshift.io/image.insecureRepository: "${INSECURE_REGISTRY}"
+      name: elasticsearch
+    spec:
+      dockerImageRepository: ${IMAGE_PREFIX}elasticsearch
+      tags:
+      - name: ${IMAGE_VERSION}
+        from:
+          kind: DockerImage
+          name: ${IMAGE_PREFIX}elasticsearch:${IMAGE_VERSION}
+- apiVersion: "v1"
+  kind: "Template"
+  parameters:
+  -
+    description: "The name for the PVC"
+    name: NAME
+    required: true
+  -
+    description: "The size for the PVC"
+    name: SIZE
+    required: true
+  metadata:
+    name: es-pvc-template
+    annotations:
+      description: "Template for deploying elasticsearch support entities: persistentvolumeclaims."
+      tags: "infrastructure"
+    labels:
+      es-infra: support
+  labels:
+    es-infra: support
+    provider: openshift
+    component: support
+  objects:
+  -
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${NAME}
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: ${SIZE}
+- apiVersion: "v1"
+  kind: "Template"
+  parameters:
+  -
+    description: "The name for the PVC"
+    name: NAME
+    required: true
+  -
+    description: "The size for the PVC"
+    name: SIZE
+    required: true
+  metadata:
+    name: es-pvc-dynamic-template
+    annotations:
+      description: "Template for deploying elasticsearch support entities: dynamically provisioned persistentvolumeclaims."
+      tags: "infrastructure"
+    note: "The only difference is the annotation. Only the name of the annotation matters; the value is ignored. Since templates can only fill in values, a separate template was needed to make the annotation optional."
+    labels:
+      es-infra: support
+  labels:
+    es-infra: support
+    provider: openshift
+    component: support
+  objects:
+  -
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: ${NAME}
+      annotations:
+        volume.alpha.kubernetes.io/storage-class: "dynamic"
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: ${SIZE}

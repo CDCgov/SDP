@@ -1,0 +1,258 @@
+---
+- hosts: masters
+  become: yes
+
+  vars:
+    sdp_concept_image: openshift/go
+    sdp_concept_repo: "https://github.com/CDCgov/concept-dictionary-manager.git"
+    sdp_concept_repo_branch: "master"
+    sdp_go_ver: "1.7"
+    sdp_proj_name: "sdp"
+    sdp_proj_display_name: "Test: Surveillance Data Platform"
+    sdp_proj_description: "Shared services to support public health surveillance"
+    sdp_vocab_image: openshift/ruby
+    sdp_ruby_ver: "2.3"
+    sdp_vocab_repo: "https://github.com/CDCgov/SDP-Vocabulary-Service.git"
+    sdp_vocab_repo_branch: "development"
+    use_dynamic_pv: "false"
+
+  tasks:
+  - name: Create SDP Project
+    command: /usr/bin/oc new-project {{ sdp_proj_name }} --display-name="{{ sdp_proj_display_name }}" --description="{{ sdp_proj_description }}"
+    run_once: true
+    register: sdp_newproject_output
+    failed_when: "sdp_newproject_output.rc == 1 and 'exists' not in sdp_newproject_output.stderr"
+    changed_when: sdp_newproject_output.rc == 0
+
+  - name: Instantiate PostgreSQL database
+    command: /usr/bin/oc new-app postgresql-persistent -p POSTGRESQL_USER={{ vault_sdp_db_user }} -p POSTGRESQL_PASSWORD={{ vault_sdp_db_pass }} -p POSTGRESQL_DATABASE={{ vault_sdp_db_name }} -p VOLUME_CAPACITY=10Gi -n {{ sdp_proj_name }}
+    run_once: true
+    register: sdp_postgresql_output
+    failed_when: "sdp_postgresql_output.rc == 1 and 'exists' not in sdp_postgresql_output.stderr"
+    changed_when: sdp_postgresql_output.rc == 0
+
+  - name: Create ElasticSearch Deployer configmap
+    command: /usr/bin/oc create configmap es-deployer -n {{ sdp_proj_name }} --from-literal=es-cluster-size=1 --from-literal=es-instance-ram=2G --from-literal=es-pvc-dynamic={{use_dynamic_pv}} --from-literal=es-pvc-prefix=es-pvc- --from-literal=es-pvc-size=10Gi
+    run_once: true
+    register: sdp_esdeployer_cm_output
+    failed_when: "sdp_esdeployer_cm_output.rc == 1 and 'exists' not in sdp_esdeployer_cm_output.stderr"
+    changed_when: sdp_esdeployer_cm_output.rc == 0
+
+  - name: Copy es-deployer-account template
+    copy:
+      src=../files/sdp/es-deployer-account-template.yml
+      dest=/tmp
+      owner=root
+      group=root
+      mode=0644
+    run_once: true
+
+  - name: Install es-deployer-account template
+    command: /usr/bin/oc create -f /tmp/es-deployer-account-template.yml -n openshift
+    run_once: true
+    register: sdp_deployeraccount_template
+    failed_when: "sdp_deployeraccount_template.rc == 1 and 'exists' not in sdp_deployeraccount_template.stderr"
+    changed_when: sdp_deployeraccount_template.rc == 0
+
+  - name: Get Registry service address
+    command: /usr/bin/oc get svc docker-registry -n default --template={% raw %}'{{.spec.clusterIP}}'{% endraw %}
+    register: docker_registry_addr_stdout
+    run_once: true
+    changed_when: False
+
+  - name: Set docker registry fact
+    set_fact:
+      docker_registry_addr: "{{docker_registry_addr_stdout.stdout}}"
+    run_once: true
+
+  - name: Copy es-deployer template
+    template:
+      src=../templates/sdp/es-deployer-template.j2
+      dest=/tmp/es-deployer-template.yml
+      owner=root
+      group=root
+      mode=0644
+    run_once: true
+
+  - name: Install es-deployer template
+    command: /usr/bin/oc create -f /tmp/es-deployer-template.yml -n openshift
+    run_once: true
+    register: sdp_deployer_template
+    failed_when: "sdp_deployer_template.rc == 1 and 'exists' not in sdp_deployer_template.stderr"
+    changed_when: sdp_deployer_template.rc == 0
+
+  - name: Create service accounts
+    command: /usr/bin/oc new-app es-deployer-account-template -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_sa_output
+    failed_when: "sdp_sa_output.rc == 1 and 'exists' not in sdp_sa_output.stderr"
+    changed_when: sdp_sa_output.rc == 0
+
+  - name: Check ElasticSearch cluster exists
+    command: /usr/bin/oc get svc es -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_es_exists
+    failed_when: False
+    changed_when: False
+
+  - name: Instantiate ElasticSearch cluster
+    command: /usr/bin/oc new-app es-deployer-template -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_es_install
+    when: sdp_es_exists.rc != 0
+    failed_when: "sdp_es_install.rc == 1 and 'exists' not in sdp_es_install.stderr"
+    changed_when: sdp_es_install.rc == 0
+
+  - name: Check Go ImageStream
+    command: /usr/bin/oc get istag go:{{sdp_go_ver}} -n openshift
+    run_once: true
+    changed_when: False
+
+  - name: Check Concept service
+    command: /usr/bin/oc get svc concept-manager -n {{sdp_proj_name}}
+    register: sdp_concept_exists
+    failed_when: False
+    changed_when: False
+    run_once: true
+
+  - name: Deploy Concept service
+    command: /usr/bin/oc new-app {{sdp_concept_image}}:{{sdp_go_ver}}~{{sdp_concept_repo}}#{{sdp_concept_repo_branch}} --name=concept-manager -e ELASTIC_SEARCH_HOST=http://es:9200 -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_concept_output
+    when: sdp_concept_exists.rc != 0
+
+  - name: Check Vocabulary service
+    command: /usr/bin/oc get svc vocabulary -n {{sdp_proj_name}}
+    register: sdp_vocab_exists
+    failed_when: False
+    changed_when: False
+    run_once: true
+
+  - name: Generate SECRET_KEY_BASE for Vocab service
+    command: /bin/bash -c "dd if=/dev/urandom bs=2048 count=1  | tr -dc 'a-z0-9' | fold -w 128 | head -n 1"
+    register: vocab_secret_generator_stdout
+    run_once: true
+    changed_when: False
+
+  - name: Set vocab secret fact
+    set_fact:
+      sdpv_secret_key_base: "{{vocab_secret_generator_stdout.stdout}}"
+    run_once: true
+
+  - name: Deploy Vocabulary service
+    command: /usr/bin/oc new-app {{sdp_vocab_image}}:{{sdp_ruby_ver}}~{{sdp_vocab_repo}}#{{sdp_vocab_repo_branch}} --name=vocabulary -e RAILS_ENV=production -e OPENSHIFT_POSTGRESQL_DB_HOST=postgresql -e OPENSHIFT_POSTGRESQL_DB_PORT=5432 -e OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} -e OPENSHIFT_APP_NAME=vocabulary -e OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} -e SECRET_KEY_BASE={{sdpv_secret_key_base}} -e PUMA_WORKERS=5 -e CA_TRUST_CERTIFICATE=/etc/pki/ca-trust/extracted/openssl/SAMS_CA_trust.crt -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_vocab_output
+    when: sdp_vocab_exists.rc != 0
+
+  - name: Set Vocabulary Build Config Environment vars
+    command: /usr/bin/oc set env bc/vocabulary SECRET_KEY_BASE={{sdpv_secret_key_base}} RAILS_ENV=production OPENSHIFT_APP_NAME=vocabulary OPENSHIFT_POSTGRESQL_DB_USERNAME={{ vault_sdp_db_user }} OPENSHIFT_POSTGRESQL_DB_PASSWORD={{ vault_sdp_db_pass }} OPENSHIFT_POSTGRESQL_DB_HOST=postgresql OPENSHIFT_POSTGRESQL_DB_PORT=5432 DISABLE_USER_REGISTRATION=true
+    run_once: true
+    when: sdp_vocab_exists.rc != 0
+
+  - name: Create Vocabulary service route
+    command: /usr/bin/oc create route edge --service=vocabulary
+    run_once: true
+    when: sdp_vocab_output.rc == 0
+
+  - name: Get assigned Vocabulary service hostname
+    command: oc get route vocabulary --template={% raw %}'{{.spec.host}}'{% endraw %}
+    run_once: true
+    register: sdp_vocab_route_host_out
+
+  - name: Set Vocab service route host fact
+    set_fact:
+      sdpv_route_host: "{{sdp_vocab_route_host_out.stdout}}"
+    run_once: true
+
+  - name: Check for Vocab Config Map
+    command: /usr/bin/oc get configmap vocab-sams-config -n {{sdp_proj_name}}
+    run_once: true
+    register: vocab_cm_exists
+    failed_when: "vocab_cm_exists.rc == 1 and 'not found' not in vocab_cm_exists.stderr"
+    changed_when: False
+
+  - name: Copy Vocab SAMS Config Yaml
+    run_once: true
+    template:
+      src=../templates/sdp/vocab_sams_config.j2
+      dest=/tmp/vocab_sams_config.yaml
+      owner=root
+      group=root
+      mode=0644
+    when: vocab_cm_exists.rc != 0
+
+  - name: Create Vocab SAMS Config Map
+    command: /usr/bin/oc create configmap vocab-sams-config --from-file=production.yaml=/tmp/vocab_sams_config.yaml
+    run_once: true
+    when: vocab_cm_exists.rc != 0
+
+  - name: Check for SAMS CA cert Config Map
+    command: /usr/bin/oc get configmap sams-openid-ca-chain -n {{sdp_proj_name}}
+    run_once: true
+    register: vocab_sams_cm_exists
+    failed_when: "vocab_sams_cm_exists.rc == 1 and 'not found' not in vocab_sams_cm_exists.stderr"
+    changed_when: False
+
+  - name: Copy SAMS CA cert chain
+    run_once: true
+    copy:
+      src=../files/sdp/SAMS_CA_trust.crt
+      dest=/tmp/SAMS_CA_trust.crt
+      owner=root
+      group=root
+      mode=0644
+    when: vocab_sams_cm_exists.rc != 0
+
+  - name: Create SAMS CA cert Config Map
+    command: /usr/bin/oc create configmap sams-openid-ca-chain --from-file=/tmp/SAMS_CA_trust.crt
+    run_once: true
+    when: vocab_sams_cm_exists.rc != 0
+
+  - name: Attach Vocab SAMS config to deployment
+    command: /usr/bin/oc set volumes dc/vocabulary --add --name=config-volume --mount-path=/opt/app-root/src/config/settings --type=configmap --configmap-name=vocab-sams-config
+    run_once: true
+    when: sdp_vocab_exists.rc != 0
+
+  - name: Attach SAMS CA trust chain to deployment
+    command: /usr/bin/oc set volumes dc/vocabulary --add --name=sams-ca-chain --mount-path=/etc/pki/ca-trust/extracted/openssl --type=configmap --configmap-name=sams-openid-ca-chain
+    run_once: true
+
+  - name: Check for PHINVADS Sync template
+    command: /usr/bin/oc get template phinvadssync-template -n {{sdp_proj_name}}
+    run_once: true
+    register: vads_sync_template
+    failed_when: "vads_sync_template.rc == 1 and 'not found' not in vads_sync_template.stderr"
+    changed_when: False
+
+  - name: Copy PHINVADS Sync template
+    run_once: true
+    template:
+      src=../templates/sdp/phinvads_sync-template.j2
+      dest=/tmp/phinvads_sync-template.yml
+      owner=root
+      group=root
+      mode=0644
+    when: vads_sync_template.rc != 0
+
+  - name: Create PHINVADS Sync template
+    command: /usr/bin/oc create -f /tmp/phinvads_sync-template.yml -n {{sdp_proj_name}}
+    run_once: true
+    register: vads_template_create_output
+    failed_when: "vads_template_create_output.rc == 1 and 'exists' not in vads_template_create_output.stderr"
+    changed_when: vads_template_create_output.rc == 0
+
+  - name: Check PHINVADS Sync job exists
+    command: /usr/bin/oc get scheduledjobs phinvadssync -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_phinvadssync_exists
+    failed_when: False
+    changed_when: False
+
+  - name: Instantiate PHINVADS Sync template
+    command: /usr/bin/oc new-app phinvadssync-template -n {{sdp_proj_name}}
+    run_once: true
+    register: sdp_phinvads_install
+    when: sdp_phinvadssync_exists.rc != 0
+    failed_when: "sdp_phinvads_install.rc == 1 and 'exists' not in sdp_phinvads_install.stderr"
+    changed_when: sdp_phinvads_install.rc == 0

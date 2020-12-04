@@ -1,0 +1,347 @@
+apiVersion: v1
+kind: Template
+labels:
+  template: neuvector-template
+message: NeuVector has been installed in your project. The default user:password for the web console is admin:admin
+metadata:
+  annotations:
+    description: |-
+      NeuVector network montitoring for OpenShift.
+    openshift.io/display-name: NeuVector
+    tags: instant-app,neuvector
+  name: neuvector
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    annotations:
+      openshift.io/display-name: NeuVector Docs
+    name: neuvector-docs
+    namespace: ${PROJECT}
+  spec:
+    dockerImageRepository: "docker.io/neuvector/docs"
+- kind: ImageStream
+  apiVersion: v1
+  metadata:
+    annotations:
+      openshift.io/display-name: NeuVector Enforcer
+    name: neuvector-enforcer
+    namespace: ${PROJECT}
+  spec:
+    dockerImageRepository: "docker.io/neuvector/enforcer"
+- kind: ImageStream
+  apiVersion: v1
+  metadata:
+    annotations:
+      openshift.io/display-name: NeuVector All-In-One
+    name: neuvector-allinone
+    namespace: ${PROJECT}
+  spec:
+    dockerImageRepository: "docker.io/neuvector/allinone"
+- kind: ImageStream
+  apiVersion: v1
+  metadata:
+    annotations:
+      openshift.io/display-name: NeuVector Controller
+    name: neuvector-controller
+    namespace: ${PROJECT}
+  spec:
+    dockerImageRepository: "docker.io/neuvector/controller"
+- kind: ImageStream
+  apiVersion: v1
+  metadata:
+    annotations:
+      openshift.io/display-name: NeuVector Manager
+    name: neuvector-manager
+    namespace: ${PROJECT}
+  spec:
+    dockerImageRepository: "docker.io/neuvector/manager"
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    annotations:
+      serviceaccounts.openshift.io/oauth-redirectreference.neuvector: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":${NEUVECTOR_MANAGER_SVC_NAME}"}}'
+    name: neuvector
+    namespace: ${PROJECT}
+- apiVersion: v1
+  kind: Route
+  metadata:
+    creationTimestamp: null
+    name: ${NEUVECTOR_MANAGER_SVC_NAME}
+    namespace: ${PROJECT}
+  spec:
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: passthrough
+    to:
+      kind: Service
+      name: ${NEUVECTOR_MANAGER_SVC_NAME}
+    port:
+      targetPort: web
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    creationTimestamp: null
+    name: ${NEUVECTOR_MANAGER_SVC_NAME}
+    namespace: ${PROJECT}
+  spec:
+    replicas: "1"
+    selector:
+      app: neuvector-manager
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: neuvector-manager
+      spec:
+        containers:
+        - imagePullPolicy: IfNotPresent
+          capabilities: []
+          volumeMounts:
+          - mountPath: /var/neuvector
+            name: nv-share
+            readOnly: false
+          image: ' '
+          name: manager
+          resources: []
+          env:
+          - name: CTRL_SERVER_IP
+            value: ${NEUVECTOR_CONTROLLER_SVC_NAME}.${PROJECT}
+          terminationMessagePath: /dev/manager-log
+          securityContext:
+            capabilities: []
+            privileged: true
+        nodeSelector:
+          region: infra
+          network-segment: internal
+        volumes:
+        - name: nv-share
+          hostPath:
+            path: /var/neuvector
+        restartPolicy: Always
+        dnsPolicy: ClusterFirst
+        serviceAccount: neuvector
+        serviceAccountName: neuvector
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - manager
+        from:
+          kind: ImageStreamTag
+          name: ${NEUVECTOR_IMAGE_STREAM_TAG_PREFIX}manager:${NEUVECTOR_IMAGE_VERSION}
+          namespace: ${IMAGE_NAMESPACE}
+        lastTriggeredImage: ""
+      type: ImageChange
+    - type: ConfigChange
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    creationTimestamp: null
+    name: ${NEUVECTOR_CONTROLLER_SVC_NAME}
+    namespace: ${PROJECT}
+  spec:
+    replicas: "3"
+    selector:
+      app: neuvector-controller
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: neuvector-controller
+      spec:
+        containers:
+        - imagePullPolicy: IfNotPresent
+          capabilities: []
+          volumeMounts:
+          - mountPath: /var/neuvector
+            name: nv-share
+            readOnly: false
+          - mountPath: /var/run/docker.sock
+            name: docker-sock
+            readOnly: false
+          - mountPath: /host/cgroup
+            name: cgroup-vol
+            readOnly: true
+          - mountPath: /host/proc
+            name: proc-vol
+            readOnly: true
+          image: ' '
+          name: controller
+          resources: []
+          env:
+          - name: CLUSTER_JOIN_ADDR
+            value: ${NEUVECTOR_CONTROLLER_SVC_NAME}.${PROJECT}
+          - name: CLUSTER_ADVERTISED_ADDR
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: CTRL_PATH_DEBUG
+            value: "0"
+          terminationMessagePath: /dev/controller-log
+          securityContext:
+            capabilities: []
+            privileged: true
+        nodeSelector:
+          region: infra
+          network-segment: internal
+        volumes:
+        - name: nv-share
+          hostPath:
+            path: /var/neuvector
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: cgroup-vol
+          hostPath:
+            path: /sys/fs/cgroup
+        - name: proc-vol
+          hostPath:
+            path: /proc
+        restartPolicy: Always
+        dnsPolicy: ClusterFirst
+        serviceAccount: neuvector
+        serviceAccountName: neuvector
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - controller
+        from:
+          kind: ImageStreamTag
+          name: ${NEUVECTOR_IMAGE_STREAM_TAG_PREFIX}controller:${NEUVECTOR_IMAGE_VERSION}
+          namespace: ${IMAGE_NAMESPACE}
+        lastTriggeredImage: ""
+      type: ImageChange
+    - type: ConfigChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    name: ${NEUVECTOR_MANAGER_SVC_NAME}
+    namespace: ${PROJECT}
+  spec:
+    ports:
+    - name: web
+      port: 443
+      protocol: TCP
+      targetPort: 8443
+    selector:
+      app: neuvector-manager
+    sessionAffinity: None
+    type: ClusterIP
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    name: ${NEUVECTOR_CONTROLLER_SVC_NAME}
+    namespace: ${PROJECT}
+  spec:
+    ports:
+    - name: cluster-tcp-18300
+      port: 18300
+      protocol: TCP
+      targetPort: 18300
+    - name: cluster-tcp-18301
+      port: 18301
+      protocol: TCP
+      targetPort: 18301
+    - name: cluster-udp-18301
+      port: 18301
+      protocol: UDP
+      targetPort: 18301
+    selector:
+      app: neuvector-controller
+    sessionAffinity: None
+    clusterIP: None
+- apiVersion: extensions/v1beta1
+  kind: DaemonSet
+  metadata:
+    creationTimestamp: null
+    labels:
+      app: neuvector-enforcer
+    name: neuvector-enforcer
+    namespace: ${PROJECT}
+  spec:
+    selector:
+      matchLabels:
+        app: neuvector-enforcer
+    template:
+      metadata:
+        labels:
+          app: neuvector-enforcer
+      spec:
+        containers:
+        - name: neuvector-enforcer
+          image: ${CLUSTER_REGISTRY_SERVICE}/${IMAGE_NAMESPACE}/${NEUVECTOR_IMAGE_STREAM_TAG_PREFIX}enforcer:${NEUVECTOR_IMAGE_VERSION}
+          securityContext:
+            privileged: true
+          env:
+          - name: CLUSTER_JOIN_ADDR
+            value: ${NEUVECTOR_CONTROLLER_SVC_NAME}.${PROJECT}
+          - name: CLUSTER_ADVERTISED_ADDR
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          volumeMounts:
+          - mountPath: /var/neuvector
+            name: nv-share
+            readOnly: false
+          - mountPath: /var/run/docker.sock
+            name: docker-sock
+            readOnly: false
+          - mountPath: /host/proc
+            name: proc-vol
+            readOnly: true
+          - mountPath: /host/cgroup
+            name: cgroup-vol
+            readOnly: true
+        restartPolicy: Always
+        serviceAccount: neuvector
+        serviceAccountName: neuvector
+        volumes:
+        - name: nv-share
+          hostPath:
+            path: /var/neuvector
+        - name: docker-sock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: proc-vol
+          hostPath:
+            path: /proc
+        - name: cgroup-vol
+          hostPath:
+            path: /sys/fs/cgroup
+parameters:
+- description: The name of the OpenShift Service exposed for the Manager container.
+  displayName: NeuVector Console Service Name
+  name: NEUVECTOR_MANAGER_SVC_NAME
+  value: console
+- description: The name of the OpenShift Service exposed for the Controller containers.
+  displayName: NeuVector Controller Service Name
+  name: NEUVECTOR_CONTROLLER_SVC_NAME
+  value: controller
+- description: Prefix of the ImageStreamTag to be used for the Neuvector images.
+  displayName: NeuVector ImageStreamTag Prefix
+  name: NEUVECTOR_IMAGE_STREAM_TAG_PREFIX
+  value: neuvector-
+- description: Image version to use for NeuVector images.
+  displayName: Image Version
+  name: NEUVECTOR_IMAGE_VERSION
+  value: latest
+- description: Namespace that contains the container images.
+  displayName: Image Namespace
+  name: IMAGE_NAMESPACE
+  value: openshift
+- description: IP Address of the repository containing the enforcer image.
+  displayName: Docker Registry Service Address
+  name: CLUSTER_REGISTRY_SERVICE
+  required: true
+- description: Name of the project being deployed into.
+  displayName: Project name
+  name: PROJECT
+  value: neuvector
